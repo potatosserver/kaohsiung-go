@@ -442,7 +442,7 @@
             data.forEach(r => {
                 let timeHtml = `<span class="text-gray-400 font-bold text-sm">未發車</span>`;
                 let statusClass = 'bg-white border-gray-100';
-                if (r.isSuspended) timeHtml = `<span class="text-gray-500 text-sm">停駛</span>`;
+                if (r.isSuspended) timeHtml = `<span class="text-gray-500 text-sm">末班已過</span>`;
                 else if (r.etas?.[0]) {
                     const min = r.etas[0].etaTime;
                     if (min <= 1) { timeHtml = `<span class="text-red-600 font-bold flex items-center text-sm"><span class="material-icons-round text-sm mr-1 animate-pulse">campaign</span>進站中</span>`; statusClass = 'bg-red-50 border-red-100 shadow-sm'; }
