@@ -223,7 +223,7 @@
 
     <script>
         const CONFIG = {
-            BUS_JSON: 'https://raw.githubusercontent.com/potatosserver/kaohsiung_live_bus/main/Station.json',
+            // BUS_JSON 已移除，改為直接使用 IBUS_API 執行 God Mode 抓取
             UBIKE_LIST: 'https://apis.youbike.com.tw/json/station-min-yb2.json',
             UBIKE_REALTIME: 'https://apis.youbike.com.tw/tw2/parkingInfo',
             IBUS_API: 'https://ibus.tbkc.gov.tw/ibus/graphql'
@@ -238,12 +238,15 @@
         window.onload = async () => {
             initMap();
             initSidebarGestures();
+            // loadBusData 已升級為 God Mode 抓取
             await Promise.all([loadBusData(), loadBikeData()]);
             const loading = document.getElementById('loading-screen');
             loading.style.opacity = '0';
             loading.classList.remove('visible');
             setTimeout(() => loading.remove(), 500);
         };
+
+        function updateLoading(txt) { document.getElementById('loading-text').innerText = txt; }
 
         function showToast(msg, type = 'info') {
             const container = document.getElementById('toast-container');
@@ -265,7 +268,6 @@
             STATE.pendingRouteId = routeId;
             document.getElementById('nav-route-name').innerText = routeName;
             document.getElementById('nav-modal').classList.remove('hidden');
-            // 加入歷史紀錄以攔截返回鍵
             history.pushState({ modal: 'nav' }, null, '');
         }
 
@@ -275,7 +277,6 @@
 
         function cancelRedirect() { history.back(); }
 
-        // 點擊彈窗背景關閉
         function handleModalClick(e) {
             if (e.target.id === 'nav-modal') cancelRedirect();
         }
@@ -335,10 +336,105 @@
             STATE.map.addLayer(STATE.bikeCluster);
         }
 
-        async function loadBusData() {
+        // --- GraphQL 助手函數 (從 ai_studio_code.html 移植) ---
+        async function fetchGraphQL(query) {
             try {
-                const res = await fetch(CONFIG.BUS_JSON);
-                STATE.dataBus = await res.json();
+                const response = await fetch(CONFIG.IBUS_API, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        // 必要的偽裝
+                        'Origin': 'https://ibus.tbkc.gov.tw',
+                        'Referer': 'https://ibus.tbkc.gov.tw/'
+                    },
+                    body: JSON.stringify({ query })
+                });
+
+                if (!response.ok) {
+                    const text = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${text.substring(0, 100)}`);
+                }
+                return await response.json();
+            } catch (e) {
+                throw e;
+            }
+        }
+
+        // --- 公車站點抓取：God Mode (從 ai_studio_code.html 移植) ---
+        async function fetchBusStationsGodMode() {
+            const uniqueStations = new Map();
+            try {
+                // 1. 取得所有路線 ID
+                updateLoading("正在取得路線列表...");
+                const listQuery = `query { routes(lang: "zh") { edges { node { id name } } } }`;
+                const listData = await fetchGraphQL(listQuery);
+                const allRoutes = listData.data.routes.edges;
+                
+                updateLoading(`取得 ${allRoutes.length} 條路線。正在組裝超級查詢...`);
+
+                // 2. 組裝超級查詢 (Giant Query Construction)
+                const bigQueryBody = allRoutes.map(edge => {
+                    const rid = edge.node.id;
+                    // 使用 Alias: r_XXX
+                    return `
+                        r_${rid}: route(xno: ${rid}, lang: "zh") {
+                            stations { edges { node { id name lat lon } } }
+                        }
+                    `;
+                }).join('\n');
+
+                const godQuery = `query GOD_MODE_FETCH { ${bigQueryBody} }`;
+
+                updateLoading("🚀 發送超級請求中 (等待伺服器回應)...");
+                
+                // 3. 發送唯一的請求
+                const result = await fetchGraphQL(godQuery);
+
+                if (result.errors) {
+                    console.error(result.errors);
+                    throw new Error("伺服器回傳錯誤 (請看 Console)");
+                }
+
+                updateLoading("✅ 收到回應！正在解析站點資料...");
+
+                // 4. 解析龐大的回應
+                if (result.data) {
+                    // Object.values 取出所有 r_XXX 的結果
+                    Object.values(result.data).forEach(routeData => {
+                        if (routeData && routeData.stations) {
+                            routeData.stations.edges.forEach(e => {
+                                const s = e.node;
+                                if (!uniqueStations.has(s.id)) {
+                                    uniqueStations.set(s.id, {
+                                        id: s.id, 
+                                        name: s.name, 
+                                        lat: s.lat, 
+                                        lon: s.lon
+                                    });
+                                }
+                            });
+                        }
+                    });
+                }
+                updateLoading(`🎉 成功收集 ${uniqueStations.size} 個站點。`);
+                return Array.from(uniqueStations.values());
+
+            } catch (e) {
+                console.error("God Mode Fetch Failed:", e);
+                // 顯示錯誤 Toast
+                showToast(`公車資料抓取失敗: ${e.message.substring(0, 50)}...`, 'error');
+                updateLoading("💥 公車資料載入失敗 (改用離線資料)");
+                return []; // 失敗則回傳空陣列
+            }
+        }
+
+        // --- loadBusData 升級為使用 God Mode 抓取 ---
+        async function loadBusData() {
+            updateLoading('載入公車站點 (即時抓取)...');
+            try {
+                // 使用 God Mode 邏輯抓取最新資料
+                STATE.dataBus = await fetchBusStationsGodMode(); 
+                
                 const markers = STATE.dataBus.map(s => {
                     if(!s.lat || !s.lon) return null;
                     const marker = L.marker([s.lat, s.lon], { icon: L.divIcon({ className: 'custom-icon bus-icon', html: '<span class="material-icons-outlined text-sm">directions_bus</span>', iconSize: [30, 30] }) });
@@ -347,7 +443,9 @@
                     return marker;
                 }).filter(m => m);
                 STATE.busCluster.addLayers(markers);
-            } catch (e) { console.error(e); }
+            } catch (e) { 
+                console.error(e);
+            }
         }
 
         async function loadBikeData() {
@@ -436,7 +534,7 @@
         }
 
         function renderBusContent(data, container) {
-            if (!data) { container.innerHTML = '<div class="p-4 bg-red-50 text-red-600 rounded-lg text-center text-sm">連線失敗 (CORS)</div>'; return; }
+            if (!data) { container.innerHTML = '<div class="p-4 bg-red-50 text-red-600 rounded-lg text-center text-sm">連線失敗 (CORS) 或 iBus 查詢錯誤</div>'; return; }
             if (data.length === 0) { container.innerHTML = '<div class="p-8 text-center text-slate-400"><span class="material-icons-outlined text-4xl mb-2">bus_alert</span><p>無營運路線</p></div>'; return; }
             let html = '<div class="space-y-3">';
             data.forEach(r => {
@@ -495,6 +593,7 @@
         }
 
         async function getBusArrivals(stationId) {
+            // 這個函數已經在 index.html 中，沿用。
             const qRoute = `query Q($ids:[Int!]!){stations(lang:"zh",ids:$ids){edges{node{... on Station{routes{edges{goBack node{id name}}}}}}}}`;
             const qTime = `query T($t:[EstimateStationInput!]!){stationEstimates(targets:$t){edges{node{comeTime isSuspended etas{etaTime}}}}}`;
             try {
@@ -544,7 +643,9 @@
 
         function doSearch(key) {
             resultsBox.innerHTML = '';
+            // 搜尋邏輯：公車站名或 ID (GraphQL 抓取的資料格式是 {id, name, lat, lon})
             const resBus = STATE.dataBus.filter(s => s.name.includes(key) || s.id.toString().includes(key)).slice(0, 8);
+            // 搜尋邏輯：YouBike 站名或地址 (GraphQL 抓取的資料格式是 {name_tw, address_tw, ...})
             const resBike = STATE.dataBike.filter(s => s.name_tw.includes(key) || s.address_tw.includes(key)).slice(0, 8);
             if(resBus.length === 0 && resBike.length === 0) { resultsBox.innerHTML = '<div class="p-4 text-center text-slate-400 text-sm">找不到相關站點</div>'; }
             else { resBus.forEach(s => appendResult('bus', s)); resBike.forEach(s => appendResult('bike', s)); }
@@ -567,11 +668,11 @@
                 const markerMap = type === 'bus' ? STATE.markersMap.bus : STATE.markersMap.bike;
                 const cluster = type === 'bus' ? STATE.busCluster : STATE.bikeCluster;
                 STATE.map.flyTo([type === 'bus' ? data.lat : data.lat, type === 'bus' ? data.lon : data.lng], 18, { animate: true, duration: 0.8 });
+                // 使用 cluster.zoomToShowLayer 來確保點擊後聚合點會展開並顯示該標記
                 if (markerMap[id]) cluster.zoomToShowLayer(markerMap[id], () => openSidebar(type, data));
             };
             resultsBox.appendChild(div);
         }
-        function updateLoading(txt) { document.getElementById('loading-text').innerText = txt; }
     </script>
 </body>
 </html>
