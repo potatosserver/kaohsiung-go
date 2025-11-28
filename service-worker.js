@@ -5,7 +5,7 @@ const CACHE_NAME = 'kh-transport-v1';
 const STATIC_ASSETS = [
     './index.html',
     './manifest.json',
-    './favicon.ico',  // 新增：快取圖示
+    './icons/icon.ico',  // 新增：快取圖示
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
     'https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css',
     'https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css',
