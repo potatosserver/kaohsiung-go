@@ -830,6 +830,15 @@
             };
             resultsBox.appendChild(div);
         }
+
+        // --- 新增：監聽點擊事件，若點擊非搜尋框區域則關閉列表 ---
+        document.addEventListener('click', (e) => {
+            const searchContainer = document.querySelector('.search-container');
+            // 如果點擊目標不在 search-container 內，就移除 show class
+            if (!searchContainer.contains(e.target)) {
+                resultsBox.classList.remove('show');
+            }
+        });
     </script>
 </body>
 </html>
