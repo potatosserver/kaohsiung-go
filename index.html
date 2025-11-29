@@ -1,3 +1,4 @@
+--- START OF FILE index.html ---
 
 <!DOCTYPE html>
 <html lang="zh-TW">
@@ -253,7 +254,7 @@
             dataBus: [], dataBike: [], markersMap: { bus: {}, bike: {} },
             currentContext: null, 
             pendingRouteId: null, 
-            pendingStationId: null, // <--- MODIFIED: 新增站點 ID 變數
+            pendingStationId: null, // MODIFIED: 新增站點 ID 變數
             autoRefreshTimer: null,
             userMarker: null, userAccuracy: null,
             geoWatcherId: null
@@ -300,7 +301,7 @@
         // MODIFIED: 接收 stationId
         function confirmRedirect(routeId, routeName, stationId) {
             STATE.pendingRouteId = routeId;
-            STATE.pendingStationId = stationId; // <-- MODIFIED: 儲存站點 ID
+            STATE.pendingStationId = stationId; // MODIFIED: 儲存站點 ID
             document.getElementById('nav-route-name').innerText = routeName;
             document.getElementById('nav-modal').classList.remove('hidden');
             history.pushState({ modal: 'nav' }, null, '');
@@ -312,16 +313,11 @@
                 window.location.href = `https://kaohsiung-live-bus.pages.dev/?page=tracker&route=${STATE.pendingRouteId}&station=${STATE.pendingStationId}`;
                 
             } else if (STATE.pendingRouteId) {
-                // 如果沒有站點 ID，則退回到只傳送路線 ID
                 window.location.href = `https://kaohsiung-live-bus.pages.dev/?page=tracker&route=${STATE.pendingRouteId}`;
             }
         }
 
         function cancelRedirect() { history.back(); }
-
-        function handleModalClick(e) {
-            if (e.target.id === 'nav-modal') cancelRedirect();
-        }
 
         window.addEventListener('popstate', (e) => {
             const modal = document.getElementById('nav-modal');
@@ -415,6 +411,52 @@
                 { timeout: 15000, enableHighAccuracy: true, maximumAge: 0 } 
             );
         }
+
+        // --- 側邊欄重整 (Refresh Button) ---
+        // MODIFIED: 確保正確使用公車 data.id 或 YouBike data.station_no
+        async function refreshData(isAuto = false) { 
+            if (!STATE.currentContext) return;
+            
+            const btnIcon = document.querySelector('#refresh-btn span');
+            if (!isAuto) { 
+                btnIcon.classList.add('spin-anim');
+            }
+            
+            const { type, data } = STATE.currentContext;
+            const content = document.getElementById('sb-content');
+            let refreshSuccess = false; 
+
+            if (type === 'bus') {
+                const busStationId = data.id; // 公車使用 data.id
+                if(busStationId) {
+                    const arrivals = await getBusArrivals(busStationId);
+                    renderBusContent(arrivals, content);
+                    if (arrivals) refreshSuccess = true;
+                }
+            } else if (type === 'bike') {
+                const bikeStationNo = data.station_no; // YouBike 使用 data.station_no
+                if(bikeStationNo) {
+                    const info = await getBikeRealtime(bikeStationNo);
+                    renderBikeContent(info, content);
+                    if (info) refreshSuccess = true;
+                }
+            }
+
+            if (!isAuto) {
+                setTimeout(() => { 
+                    btnIcon.classList.remove('spin-anim'); 
+                    if (refreshSuccess) {
+                        showToast('即時資料已更新', 'success'); 
+                    } else {
+                        // 如果更新失敗，讓 renderContent 內的錯誤訊息顯示在側邊欄
+                        // 這裡可以只提示 Toast 
+                        showToast('資料更新失敗', 'error'); 
+                    }
+                }, 600);
+            }
+        }
+        // --- 側邊欄重整 END ---
+
 
         function initMap() {
             STATE.map = L.map('map', { zoomControl: false }).setView([22.6273, 120.3014], 17);
@@ -621,7 +663,7 @@
             if (!data) { container.innerHTML = '<div class="p-4 bg-red-50 text-red-600 rounded-lg text-center text-sm">連線失敗 (CORS) 或 iBus 查詢錯誤</div>'; return; }
             if (data.length === 0) { container.innerHTML = '<div class="p-8 text-center text-slate-400"><span class="material-icons-outlined text-4xl mb-2">bus_alert</span><p>無營運路線</p></div>'; return; }
             
-            const stationId = STATE.currentContext.data.id; // <-- MODIFIED: 取得當前站點 ID
+            const stationId = STATE.currentContext.data.id; 
 
             let html = '<div class="space-y-3">';
             data.forEach(r => {
@@ -687,7 +729,7 @@
                 const r1 = await fetch(CONFIG.IBUS_API, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ query: qRoute, variables: { ids: [parseInt(stationId, 10)] } }) });
                 const j1 = await r1.json();
                 const routeEdges = j1?.data?.stations?.edges?.[0]?.node?.routes?.edges;
-                if (!routeEdges) return [];
+                if (!routeEdges) return null; // 如果沒有路線資訊，返回 null
                 const targets = routeEdges.map(e => ({ xno: parseInt(e.node.id, 10), goBack: parseInt(e.goBack, 10), stationId: parseInt(stationId, 10) }));
                 const r2 = await fetch(CONFIG.IBUS_API, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ query: qTime, variables: { t: targets } }) });
                 const j2 = await r2.json();
@@ -745,19 +787,15 @@
 
             let score = 0;
 
-            // 1. 完全匹配 (最高權重: 1000)
             if (normalizedName === normalizedKey) {
                 score = 1000;
             } 
-            // 2. 名稱開頭匹配 (800+)
             else if (normalizedName.startsWith(normalizedKey)) {
                 score = 800 + 100 - normalizedName.length; 
             }
-            // 3. 名稱包含 (500+)
             else if (normalizedName.includes(normalizedKey)) {
                 score = 500 + 50 - normalizedName.indexOf(normalizedKey); 
             }
-            // 4. 次要欄位 (ID/地址) 包含 (200+)
             else if (normalizedSub.includes(normalizedKey)) {
                 score = 200 + 50 - normalizedSub.indexOf(normalizedKey); 
             }
@@ -769,10 +807,8 @@
         function doSearch(key) {
             resultsBox.innerHTML = '';
             
-            // 1. 篩選並計算分數
             const allResults = [];
 
-            // 處理公車站
             STATE.dataBus.forEach(s => {
                 const score = calculateScore(s, key);
                 if (score > 0) {
@@ -780,7 +816,6 @@
                 }
             });
 
-            // 處理 YouBike
             STATE.dataBike.forEach(s => {
                 const score = calculateScore(s, key);
                 if (score > 0) {
@@ -788,10 +823,8 @@
                 }
             });
             
-            // 2. 排序 (分數高的優先)
             allResults.sort((a, b) => b.score - a.score);
             
-            // 3. 限制數量並渲染
             const finalResults = allResults.slice(0, 15); 
             
             if(finalResults.length === 0) { 
