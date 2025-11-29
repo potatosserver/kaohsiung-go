@@ -1,4 +1,3 @@
---- START OF FILE index.html ---
 
 <!DOCTYPE html>
 <html lang="zh-TW">
@@ -254,8 +253,8 @@
             dataBus: [], dataBike: [], markersMap: { bus: {}, bike: {} },
             currentContext: null, pendingRouteId: null,
             autoRefreshTimer: null,
-            userMarker: null, userAccuracy: null, // 確保這些屬性存在
-            geoWatcherId: null // ADDED: for continuous geolocation
+            userMarker: null, userAccuracy: null,
+            geoWatcherId: null
         };
 
         window.onload = async () => {
@@ -263,7 +262,7 @@
             initSidebarGestures();
             await Promise.all([loadBusData(), loadBikeData()]);
             
-            initialLocateUser(); // ADDED: Initial one-time location check
+            initialLocateUser(); // 初始一次性定位 (會移動地圖)
 
             const loading = document.getElementById('loading-screen');
             loading.style.opacity = '0';
@@ -350,7 +349,9 @@
             if (STATE.userAccuracy) STATE.map.removeLayer(STATE.userAccuracy);
             if (STATE.userMarker) STATE.map.removeLayer(STATE.userMarker);
             
+            // 準確度圈
             STATE.userAccuracy = L.circle([latitude, longitude], { radius: accuracy, color: '#3b82f6', fillOpacity: 0.1 }).addTo(STATE.map);
+            // 使用者標記 (藍點)
             STATE.userMarker = L.marker([latitude, longitude], {
                 icon: L.divIcon({ className: 'bg-blue-600 border-2 border-white rounded-full shadow-lg pulse-ring', iconSize: [14, 14] })
             }).addTo(STATE.map);
@@ -361,8 +362,9 @@
             if (!navigator.geolocation) return;
             navigator.geolocation.getCurrentPosition((pos) => {
                 updateUserLocation(pos);
-                // 初始載入時設定地圖視角，但不執行 flyTo
-                // STATE.map.setView([pos.coords.latitude, pos.coords.longitude], 14); // 避免干擾初始地圖設定，可以註釋掉
+                // ⭐ MODIFIED: 初始定位成功後，將地圖視角飛到使用者位置 (zoom 17)
+                STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17, { animate: true, duration: 0.8 }); 
+
             }, (err) => {
                 // 靜默失敗，不顯示 toast
                 console.warn("Initial Geolocation failed:", err.message);
@@ -392,7 +394,8 @@
                 updateUserLocation(pos);
                 
                 // 首次定位成功時，或用戶位置不在當前視窗時，執行 flyTo
-                if (!STATE.userMarker || !STATE.map.getBounds().contains([pos.coords.latitude, pos.coords.longitude])) {
+                // ⭐ MODIFIED: 將縮放級別統一為 17
+                if (!STATE.map.getBounds().contains([pos.coords.latitude, pos.coords.longitude])) {
                      STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17);
                 }
             };
@@ -412,7 +415,8 @@
         }
 
         function initMap() {
-            STATE.map = L.map('map', { zoomControl: false }).setView([22.6273, 120.3014], 14);
+            // ⭐ MODIFIED: 初始地圖視角縮放級別改為 17
+            STATE.map = L.map('map', { zoomControl: false }).setView([22.6273, 120.3014], 17);
             L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(STATE.map);
             L.control.zoom({ position: 'bottomright' }).addTo(STATE.map);
             STATE.map.on('click', () => toggleSidebar(false));
