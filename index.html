@@ -28,6 +28,9 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
+
+    <!-- MapLibre GL CSS (向量地圖引擎) -->
+    <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -235,14 +238,20 @@
 
     <div id="map"></div>
 
+    <!-- Leaflet & MapLibre Libraries -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+    
+    <!-- MapLibre JS & Leaflet Binding -->
+    <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+    <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.0.21/leaflet-maplibre-gl.js"></script>
 
     <script>
         const CONFIG = {
             UBIKE_LIST: 'https://apis.youbike.com.tw/json/station-min-yb2.json',
             UBIKE_REALTIME: 'https://apis.youbike.com.tw/tw2/parkingInfo',
-            IBUS_API: 'https://ibus.tbkc.gov.tw/ibus/graphql'
+            IBUS_API: 'https://ibus.tbkc.gov.tw/ibus/graphql',
+            SHORTBREAD_STYLE: 'https://potatosserver.github.io/map/shortbread.json'
         };
 
         const STATE = {
@@ -256,14 +265,33 @@
             geoWatcherId: null
         };
 
+        // 預處理樣式檔，確保中文優先顯示
+        function preprocessStyle(style) {
+            if (!style || !style.layers) return style;
+            for (const layer of style.layers) {
+                if (layer.layout && layer.layout['text-field']) {
+                    layer.layout['text-field'] = [
+                        'coalesce',
+                        ['get', 'name:zh-Hant'],
+                        ['get', 'name:zh'],
+                        ['get', 'name:en'],
+                        ['get', 'name']
+                    ];
+                }
+            }
+            return style;
+        }
+
         window.onload = async () => {
-            initMap();
+            // 階段 1: 初始化地圖 (向量圖磚)
+            await initMap();
+            
             initSidebarGestures();
             
-            // 階段 1: 載入公車
+            // 階段 2: 載入公車
             await loadBusData();
             
-            // 階段 2: 載入 YouBike
+            // 階段 3: 載入 YouBike
             await loadBikeData();
             
             initialLocateUser(); 
@@ -385,6 +413,7 @@
 
             const successCallback = (pos) => {
                 updateUserLocation(pos);
+                // 只有當用戶位置超出當前視野時才移動地圖，避免干擾瀏覽
                 if (!STATE.map.getBounds().contains([pos.coords.latitude, pos.coords.longitude])) {
                      STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17);
                 }
@@ -444,9 +473,35 @@
             }
         }
 
-        function initMap() {
-            STATE.map = L.map('map', { zoomControl: false }).setView([22.6273, 120.3014], 17);
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(STATE.map);
+        async function initMap() {
+            // [修正] 初始化時明確指定 maxZoom，避免 markerCluster 報錯
+            STATE.map = L.map('map', { 
+                zoomControl: false,
+                maxZoom: 22 
+            }).setView([22.6273, 120.3014], 17);
+
+            // --- 向量地圖整合 (Shortbread) ---
+            try {
+                const response = await fetch(CONFIG.SHORTBREAD_STYLE);
+                let style = await response.json();
+                style = preprocessStyle(style); // 處理字型語系
+
+                L.maplibreGL({
+                    style: style,
+                    maplibreGLOptions: {
+                        crossOrigin: 'anonymous'
+                    },
+                    attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                }).addTo(STATE.map);
+
+                console.log('Shortbread Vector Style Loaded');
+            } catch (error) {
+                console.error("Failed to load vector style, falling back or showing error:", error);
+                // 這裡可以選擇加入一個基本的備用圖層，或是單純顯示錯誤
+                showToast("地圖樣式載入失敗", "error");
+            }
+            // --------------------------------
+
             L.control.zoom({ position: 'bottomright' }).addTo(STATE.map);
             STATE.map.on('click', () => toggleSidebar(false));
 
