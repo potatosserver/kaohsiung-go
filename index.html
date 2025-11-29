@@ -96,7 +96,7 @@
         }
         #search-results.show { display: block; }
 
-        /* --- Sidebar & Layout Logic (Orientation Based) --- */
+        /* --- Sidebar & Layout Logic --- */
         #sidebar {
             position: fixed; z-index: 2000; background: white;
             box-shadow: 0 -5px 25px rgba(0,0,0,0.1);
@@ -106,7 +106,6 @@
         #drag-area { touch-action: none; }
         #sb-content { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 
-        /* 直式 (Portrait) = 手機模式 (Sheet) */
         @media (orientation: portrait) {
             #sidebar {
                 left: 0; bottom: 0; width: 100%; height: 85vh; 
@@ -117,7 +116,6 @@
             body.sidebar-open .search-container { transform: none; }
         }
 
-        /* 橫式 (Landscape) = 電腦/平板模式 (Side Panel) */
         @media (orientation: landscape) {
             #sidebar {
                 top: 12px; left: 12px; height: calc(100% - 24px); width: 380px;
@@ -205,7 +203,6 @@
         <div id="iframe-loader" class="absolute inset-0 flex items-center justify-center z-0">
             <div class="loader w-8 h-8 border-2"></div>
         </div>
-        <!-- Iframe 將由 JS 動態生成 -->
         <div id="iframe-container" class="w-full h-full relative z-10"></div>
     </div>
 
@@ -281,6 +278,7 @@
                 loading.classList.remove('visible');
                 setTimeout(() => loading.remove(), 500);
             });
+            // 確保這行有執行，並使用更強制的設定
             initialLocateUser(); 
             if ('serviceWorker' in navigator) navigator.serviceWorker.register('./service-worker.js').catch(e=>{});
             
@@ -321,20 +319,15 @@
         function openTracker() {
             if (STATE.pendingRouteId) {
                 const url = `https://kaohsiung-live-bus.pages.dev/?page=tracker&route=${STATE.pendingRouteId}${STATE.pendingStationId ? '&station='+STATE.pendingStationId : ''}`;
-                
                 const container = document.getElementById('iframe-container');
                 container.innerHTML = ''; 
-                
                 const iframe = document.createElement('iframe');
                 iframe.className = 'tracker-iframe';
                 iframe.sandbox = 'allow-scripts allow-same-origin allow-forms allow-popups';
                 iframe.src = url;
-                
                 container.appendChild(iframe);
-
                 document.getElementById('nav-modal').classList.add('hidden');
                 document.getElementById('iframe-overlay').classList.add('active');
-
                 history.replaceState({ modal: 'iframe' }, null, '');
             }
         }
@@ -347,20 +340,17 @@
             if (!e.state || e.state.modal !== 'confirm') {
                 if (!modal.classList.contains('hidden')) modal.classList.add('hidden');
             }
-            
             if (!e.state || e.state.modal !== 'iframe') {
                 if (iframeOverlay.classList.contains('active')) {
                     iframeOverlay.classList.remove('active');
                     setTimeout(() => { container.innerHTML = ''; }, 300);
                 }
             }
-            
             if (e.state?.modal === 'confirm') modal.classList.remove('hidden');
             if (e.state?.modal === 'iframe') iframeOverlay.classList.add('active');
         });
 
-        // --- App Logic ---
-
+        // --- Logic ---
         function startAutoRefresh() { stopAutoRefresh(); if (STATE.currentContext) STATE.autoRefreshTimer = setInterval(() => { if (STATE.sheetState !== 'hidden') refreshData(true); else stopAutoRefresh(); }, 30000); }
         function stopAutoRefresh() { if (STATE.autoRefreshTimer) { clearInterval(STATE.autoRefreshTimer); STATE.autoRefreshTimer = null; } }
 
@@ -371,9 +361,21 @@
             STATE.userAccuracy = L.circle([latitude, longitude], { radius: accuracy, color: '#3b82f6', fillOpacity: 0.1 }).addTo(STATE.map);
             STATE.userMarker = L.marker([latitude, longitude], { icon: L.divIcon({ className: 'bg-blue-600 border-2 border-white rounded-full shadow-lg', iconSize: [14, 14] }) }).addTo(STATE.map);
         }
+
+        // 自動定位邏輯：開啟高精度，延長等待時間，但若失敗不跳提示
         function initialLocateUser() {
-            if (navigator.geolocation) navigator.geolocation.getCurrentPosition((pos) => { updateUserLocation(pos); STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17, { animate: true, duration: 0.8 }); }, null, { timeout: 5000 });
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => { 
+                        updateUserLocation(pos); 
+                        STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17, { animate: true, duration: 0.8 }); 
+                    }, 
+                    (err) => { /* Silent Fail */ }, 
+                    { timeout: 10000, enableHighAccuracy: true } // 增加超時與精度
+                );
+            }
         }
+
         function locateUser() {
             if (!navigator.geolocation) return showToast('不支援定位', 'error');
             const locIcon = document.querySelector('#search-box button:last-child span');
@@ -405,7 +407,7 @@
         }
 
         async function initMap() {
-            // [修正1] 更新預設座標為高雄車站附近
+            // 更新：預設座標設為高雄車站
             STATE.map = L.map('map', { 
                 zoomControl: false, maxZoom: 22, preferCanvas: true, wheelDebounceTime: 100 
             }).setView([22.631442, 120.301890], 17);
@@ -580,7 +582,7 @@
             const time = new Date().toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit'});
             const getNumColor = (n) => n > 3 ? 'text-slate-800' : (n > 0 ? 'text-orange-600' : 'text-gray-300');
 
-            // [修正2] 修改 CSS class，移除 -bottom-3，改為 bottom-0 right-0，解決圖示偏下問題
+            // 修正：移除 -bottom-3，改用 right-0 bottom-0
             container.innerHTML = `
                 <div class="space-y-4">
                     <div class="grid grid-cols-2 gap-3">
