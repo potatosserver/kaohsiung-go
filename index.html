@@ -1,941 +1,655 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-    <meta charset="UTF-8">
-    <meta name="author" content="卓稟鈞(AndrewCho)">
-    <meta name="description" content="一個專為高雄市的簡單、美觀且低流量的整合式大眾運輸搜尋器，提供快速查詢路線資訊功能，滿足即時需求，適合所有用戶使用。">
-    <meta name="keywords" content="高雄市公車, 高雄公車, 高雄市公車即時資訊, 公車即時資訊, 公車式小黃, 公車小黃, 幹線, 幹線公車, 快線, 快線公車, 紅線公車, 橘線公車, 黃線公車, 綠線公車, Github, github.io" />
-    <meta property="og:site_name" content="高雄交通智慧地圖" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>高雄交通智慧地圖</title>
+  <meta charset="utf-8" />
+  <title>3D 智能語音導航 (穩定美觀版)</title>
+  <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+
+  <!-- MapLibre GL JS -->
+  <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+
+  <!-- Google Fonts & Icons -->
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+
+  <style>
+    /* --- 全域設定 --- */
+    body { margin: 0; padding: 0; font-family: 'Roboto', sans-serif; overflow: hidden; background: #eee; }
+    #map { position: absolute; top: 0; bottom: 0; width: 100%; z-index: 1; }
     
-    <!-- Favicon Settings -->
-    <link rel="shortcut icon" href="/icons/icon.ico" type="image/x-icon">
-    <link rel="icon" href="/icons/icon.ico" type="image/x-icon">
+    .crosshair-cursor .maplibregl-canvas { cursor: crosshair !important; }
+
+    /* --- 搜尋面板 --- */
+    #search-panel {
+        position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+        width: 92%; max-width: 420px; z-index: 100; 
+        background: rgba(255, 255, 255, 0.98);
+        border-radius: 12px; 
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+        padding: 12px; 
+        display: flex; flex-direction: column; gap: 8px; 
+        transition: top 0.4s cubic-bezier(0.4, 0.0, 0.2, 1);
+    }
+
+    .input-row { display: flex; align-items: center; gap: 10px; }
     
-    <!-- PWA Settings -->
-    <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#ffffff">
-    <meta name="mobile-web-app-capable" content="yes">
+    .input-box {
+        flex: 1; display: flex; align-items: center; 
+        background: #f1f3f4; border-radius: 8px; padding: 4px 12px;
+        transition: background 0.2s, box-shadow 0.2s;
+    }
+    .input-box:focus-within { background: #fff; box-shadow: 0 0 0 2px #4285F4; }
+    .input-box input { 
+        border: none; background: transparent; flex: 1; padding: 10px 0; 
+        font-size: 16px; outline: none; color: #202124; 
+    }
     
-    <!-- iOS Support -->
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="apple-mobile-web-app-title" content="高雄交通">
-    <link rel="apple-touch-icon" href="icons/icon-192x192.png">
-
-    <!-- Leaflet CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
-
-    <!-- MapLibre GL CSS (向量地圖引擎) -->
-    <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+    /* 按鈕樣式 */
+    .icon-btn { 
+        padding: 10px; border-radius: 50%; cursor: pointer; color: #5f6368; 
+        transition: all 0.2s; display: flex; align-items: center; justify-content: center;
+    }
+    .icon-btn:hover { background: rgba(0,0,0,0.05); color: #202124; }
+    .icon-btn.active { color: #1a73e8; background: #e8f0fe; }
     
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    /* 搜尋建議 */
+    #suggestions { 
+        max-height: 220px; overflow-y: auto; display: none; margin-top: 5px; 
+        border-top: 1px solid #eee; 
+    }
+    .suggestion-item { 
+        padding: 12px 8px; cursor: pointer; border-radius: 4px; 
+        display: flex; flex-direction: column; 
+    }
+    .suggestion-item:hover { background: #f8f9fa; }
+    .s-title { font-weight: 500; color: #202124; font-size: 15px; }
+    .s-desc { color: #70757a; font-size: 13px; margin-top: 2px; }
+
+    /* --- 底部導航面板 --- */
+    #nav-footer {
+        position: absolute; bottom: 0; left: 0; width: 100%; 
+        background: white; z-index: 1000;
+        border-top-left-radius: 24px; border-top-right-radius: 24px;
+        box-shadow: 0 -4px 20px rgba(0,0,0,0.15); 
+        transform: translateY(110%); 
+        transition: transform 0.4s cubic-bezier(0.2, 0, 0, 1); 
+        padding: 20px 20px 30px 20px; box-sizing: border-box;
+    }
+    #nav-footer.show { transform: translateY(0); }
+
+    .nav-info-container { display: flex; justify-content: space-between; align-items: center; }
+    .route-meta h1 { margin: 0; font-size: 26px; color: #1a73e8; font-weight: 700; }
+    .route-meta span { color: #5f6368; font-size: 16px; font-weight: 500; }
+
+    #btn-start-nav {
+        background: #1a73e8; color: white; border: none; 
+        padding: 14px 32px; border-radius: 30px; 
+        font-size: 16px; font-weight: 600; cursor: pointer; 
+        box-shadow: 0 4px 10px rgba(26, 115, 232, 0.3);
+        transition: transform 0.1s;
+    }
+    #btn-start-nav:active { transform: scale(0.96); }
+
+    /* --- 導航指令卡 --- */
+    #turn-instruction {
+        position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+        width: 92%; max-width: 420px; 
+        background: #263238; 
+        color: white; 
+        padding: 16px; border-radius: 12px; 
+        z-index: 1001; display: none; 
+        box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+    }
     
-    <!-- Icons -->
-    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined|Material+Icons+Round" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    .turn-body { display: flex; align-items: flex-start; justify-content: space-between; }
+    .turn-left { display: flex; align-items: center; gap: 16px; }
+    .turn-icon-large { font-size: 48px; color: #fff; }
+    
+    .turn-text-group { display: flex; flex-direction: column; }
+    #turn-dist { font-size: 26px; font-weight: 700; color: #4fc3f7; line-height: 1.2; }
+    #turn-text { font-size: 18px; font-weight: 400; opacity: 0.9; margin-top: 4px; }
 
-    <style>
-        /* 全域設定：禁止選取文字 */
-        body, html { 
-            height: 100%; margin: 0; overflow: hidden; 
-            font-family: 'Noto Sans TC', sans-serif; 
-            background: #f3f4f6;
-            -webkit-user-select: none; user-select: none;
-            -webkit-tap-highlight-color: transparent;
-        }
-        
-        #map { height: 100%; width: 100%; z-index: 1; }
+    .turn-actions { display: flex; gap: 8px; }
+    .glass-btn { 
+        background: rgba(255,255,255,0.15); border: none; color: white;
+        width: 44px; height: 44px; border-radius: 50%; 
+        cursor: pointer; display: flex; align-items: center; justify-content: center;
+        transition: background 0.2s;
+    }
+    .glass-btn:hover { background: rgba(255,255,255,0.25); }
 
-        /* --- 圖釘與聚合樣式 --- */
-        .custom-icon {
-            border-radius: 50%; color: white;
-            display: flex; justify-content: center; align-items: center;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.4); 
-            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            cursor: pointer;
-        }
-        .custom-icon:hover { transform: scale(1.2); z-index: 1000 !important; }
-        .bus-icon { background: #2563eb; }
-        .ubike-icon { background: #f59e0b; }
+    /* --- 退出按鈕 --- */
+    #btn-exit-nav {
+        position: absolute; bottom: 40px; right: 20px; 
+        background: #fff; color: #d93025;
+        width: 60px; height: 60px; border-radius: 50%; 
+        border: none; display: none;
+        z-index: 1002; cursor: pointer; 
+        align-items: center; justify-content: center; 
+        box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+        transition: transform 0.2s;
+    }
+    #btn-exit-nav:hover { transform: scale(1.05); }
 
-        .marker-cluster-bus { background-color: rgba(59, 130, 246, 0.5) !important; }
-        .marker-cluster-bus div { background-color: #1d4ed8 !important; color: white !important; border-radius: 50%; width: 30px; height: 30px; margin-left: 5px; margin-top: 5px; text-align: center; line-height: 30px; font-weight: bold; }
-        .marker-cluster-ubike { background-color: rgba(245, 158, 11, 0.5) !important; }
-        .marker-cluster-ubike div { background-color: #d97706 !important; color: white !important; border-radius: 50%; width: 30px; height: 30px; margin-left: 5px; margin-top: 5px; text-align: center; line-height: 30px; font-weight: bold; }
+    /* --- 步驟詳情面板 --- */
+    #steps-panel {
+        position: absolute; bottom: 0; left: 0; width: 100%; height: 60%; 
+        background: white; z-index: 2000; 
+        border-top-left-radius: 20px; border-top-right-radius: 20px;
+        transform: translateY(100%); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        display: flex; flex-direction: column; box-shadow: 0 -10px 40px rgba(0,0,0,0.2);
+    }
+    #steps-panel.open { transform: translateY(0); }
+    
+    .steps-header { 
+        padding: 18px 20px; border-bottom: 1px solid #f1f3f4; 
+        display: flex; justify-content: space-between; align-items: center; 
+        font-weight: 700; font-size: 18px; color: #202124;
+    }
+    .steps-list { flex: 1; overflow-y: auto; padding: 0; margin: 0; list-style: none; }
+    .step-item { 
+        padding: 16px 20px; border-bottom: 1px solid #f8f9fa; 
+        display: flex; gap: 16px; align-items: center; 
+    }
+    .step-icon { color: #5f6368; }
+    .step-text { flex: 1; font-size: 16px; color: #3c4043; line-height: 1.5; }
+    .step-dist { color: #1a73e8; font-weight: 500; font-size: 14px; min-width: 60px; text-align: right; }
 
-        /* --- 搜尋欄 --- */
-        .search-container { 
-            position: absolute; top: 12px; left: 50%; transform: translateX(-50%); 
-            z-index: 1000; width: 94%; max-width: 400px;
-        }
-        
-        #search-box {
-            background: white; border-radius: 99px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-            display: flex; align-items: center; padding: 0.5rem 1rem;
-            transition: all 0.3s;
-        }
+    /* --- Loading --- */
+    #loading-indicator {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      background: rgba(255, 255, 255, 0.95); padding: 20px 30px;
+      border-radius: 12px; z-index: 3000; display: none; 
+      box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+      text-align: center;
+    }
+    .spinner {
+        border: 4px solid #f3f3f3; border-top: 4px solid #1a73e8;
+        border-radius: 50%; width: 30px; height: 30px;
+        animation: spin 1s linear infinite; margin: 0 auto 10px auto;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .loading-text { font-weight: 500; color: #555; }
 
-        #search-results {
-            background: white; width: 100%; margin-top: 8px; border-radius: 16px;
-            max-height: 50vh; overflow-y: auto; display: none;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-            border: 1px solid #f3f4f6;
-        }
-        #search-results.show { display: block; }
-
-        /* --- 側邊欄與 RWD --- */
-        #sidebar {
-            position: fixed; z-index: 2000; background: white;
-            box-shadow: 0 0 25px rgba(0,0,0,0.2);
-            display: flex; flex-direction: column;
-            transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-        }
-
-        /* 手機版 */
-        @media (max-width: 767px) {
-            #sidebar {
-                left: 0; bottom: 0; width: 100%; height: 65vh;
-                border-radius: 28px 28px 0 0;
-                transform: translateY(105%); touch-action: none;
-            }
-            #sidebar.active { transform: translateY(0); }
-        }
-
-        /* 電腦版 */
-        @media (min-width: 768px) {
-            #sidebar {
-                top: 12px; left: 12px; height: calc(100% - 24px); width: 380px;
-                transform: translateX(-110%);
-                border-radius: 24px; border: 1px solid #e5e7eb;
-            }
-            #sidebar.active { transform: translateX(0); }
-
-            .search-container {
-                top: 20px; left: 20px; width: 380px; max-width: none;
-                transform: none; transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-            }
-            body.sidebar-open .search-container { transform: translateX(410px); }
-        }
-        
-        /* 載入動畫 */
-        #loading-screen { position: fixed; inset: 0; background: rgba(255,255,255,0.95); z-index: 3000; display: flex; flex-direction: column; justify-content: center; align-items: center; transition: opacity 0.5s; pointer-events: none; }
-        #loading-screen.visible { pointer-events: auto; }
-        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #2563eb; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .spin-anim { animation: spin 0.8s linear infinite; }
-
-        /* Toast 通知 */
-        #toast-container {
-            position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(20px);
-            z-index: 4000; pointer-events: none; transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); opacity: 0;
-            width: 90%; max-width: 300px; display: flex; justify-content: center;
-        }
-        #toast-container.show { transform: translateX(-50%) translateY(0); opacity: 1; }
-        .toast-content {
-            background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(8px);
-            color: #1e293b; padding: 10px 20px; border-radius: 99px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.15); font-size: 14px; font-weight: 500;
-            display: flex; align-items: center; gap: 8px; border: 1px solid #e2e8f0;
-        }
-
-        /* 跳轉確認彈窗 */
-        #nav-modal { transition: opacity 0.3s ease; }
-        #nav-modal.hidden { opacity: 0; pointer-events: none; }
-        #nav-modal:not(.hidden) { opacity: 1; pointer-events: auto; }
-        
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-    </style>
+  </style>
 </head>
-<body>
+<body class="crosshair-cursor-enabled">
 
-    <!-- 載入畫面 -->
-    <div id="loading-screen" class="visible">
-        <div class="loader mb-4"></div>
-        <h2 class="text-xl font-bold text-slate-800">高雄交通智慧地圖</h2>
-        <p id="loading-text" class="text-sm text-slate-500 mt-2">系統初始化中（1/3）</p>
-    </div>
+<div id="map"></div>
 
-    <!-- Toast 通知 -->
-    <div id="toast-container">
-        <div id="toast-message" class="toast-content">
-            <span id="toast-icon" class="material-icons-round text-lg">info</span>
-            <span id="toast-text">提示訊息</span>
+<!-- 搜尋面板 -->
+<div id="search-panel">
+    <div class="input-row">
+        <span class="material-icons" style="color:#1a73e8; font-size: 20px;">trip_origin</span>
+        <div class="input-box">
+            <input type="text" id="start-input" placeholder="起點 (預設我的位置)" oninput="handleInput('start', this.value)" />
+        </div>
+        <div class="icon-btn" id="btn-pick-start" onclick="togglePickMode('start')" title="地圖選點">
+            <span class="material-icons">touch_app</span>
+        </div>
+        <div class="icon-btn" onclick="resetToUserLocation()" title="GPS定位">
+            <span class="material-icons">my_location</span>
         </div>
     </div>
-    <div id="nav-modal" class="fixed inset-0 z-[5000] flex items-center justify-center bg-black/40 backdrop-blur-sm hidden p-4" onclick="handleModalClick(event)">
-        <div class="bg-white rounded-3xl shadow-2xl p-6 w-full max-w-sm transform transition-all scale-100" onclick="event.stopPropagation()">
-            <div class="flex items-center gap-3 mb-4">
-                <div class="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center flex-shrink-0">
-                    <span class="material-icons-round text-xl">directions_bus</span>
-                </div>
-                <div>
-                    <h3 class="text-lg font-bold text-slate-800">查看路線動態</h3>
-                    <p class="text-sm text-slate-500">將前往外部頁面</p>
-                </div>
-            </div>
-            <p class="text-slate-600 mb-6">
-                是否查看 <span id="nav-route-name" class="font-bold text-blue-600">紅53</span> 的詳細動態？
-            </p>
-            <div class="flex gap-3">
-                <button onclick="cancelRedirect()" class="flex-1 py-3 px-4 rounded-xl bg-gray-100 text-slate-700 font-bold hover:bg-gray-200 transition">取消</button>
-                <button onclick="doRedirect()" class="flex-1 py-3 px-4 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition">前往</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- 搜尋欄 -->
-    <div class="search-container">
-        <div id="search-box">
-            <span class="material-icons-outlined text-slate-400 mr-2">search</span>
-            <input type="text" id="search-input" placeholder="搜尋公車路線或 YouBike..." 
-                   class="flex-1 outline-none text-slate-700 placeholder-slate-400 bg-transparent text-base">
-            
-            <!-- 清除按鈕 -->
-            <button id="search-clear" class="hidden p-1 text-slate-300 hover:text-slate-500 hover:bg-slate-100 rounded-full transition mr-1 flex items-center justify-center">
-                <span class="material-icons-round text-lg">cancel</span>
-            </button>
-            
-            <div class="w-[1px] h-5 bg-gray-200 mx-1"></div>
-            
-            <button class="p-2 text-slate-400 hover:text-blue-600 transition" onclick="locateUser()" title="定位">
-                <span class="material-icons-outlined">my_location</span>
-            </button>
-        </div>
-        <div id="search-results"></div>
-    </div>
-
-    <!-- 側邊欄 -->
-    <div id="sidebar">
-        <div id="drag-area" class="bg-white sticky top-0 z-10 cursor-grab active:cursor-grabbing rounded-t-[28px]">
-            <div class="w-full flex justify-center pt-3 pb-1 md:hidden">
-                <div class="w-12 h-1.5 bg-gray-300 rounded-full"></div>
-            </div>
-            <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-start">
-                <div class="flex-1 min-w-0 pr-2">
-                    <div id="sb-badge" class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold mb-2 transition-colors bg-gray-100 text-gray-600">載入中</div>
-                    <h2 id="sb-title" class="text-2xl font-bold text-slate-800 leading-tight truncate">請選擇站點</h2>
-                    <div class="flex items-center mt-1 text-slate-500">
-                        <span class="material-icons-outlined text-sm mr-1">place</span>
-                        <p id="sb-subtitle" class="text-sm truncate">-</p>
-                    </div>
-                </div>
-                <!-- 重新整理按鈕 -->
-                <button id="refresh-btn" onclick="refreshData()" class="w-10 h-10 flex items-center justify-center bg-slate-50 text-slate-500 hover:bg-blue-50 hover:text-blue-600 rounded-full transition shadow-sm border border-slate-100" title="更新即時資料">
-                    <span class="material-icons-round text-xl">refresh</span>
-                </button>
-            </div>
-        </div>
-        <div id="sb-content" class="flex-1 overflow-y-auto bg-slate-50 p-4 space-y-3 pb-safe rounded-b-[28px]"></div>
-    </div>
-
-    <div id="map"></div>
-
-    <!-- Leaflet & MapLibre Libraries -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
     
-    <!-- MapLibre JS & Leaflet Binding -->
-    <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
-    <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.0.21/leaflet-maplibre-gl.js"></script>
+    <div class="input-row" style="height: 10px;"></div>
 
-    <script>
-        const CONFIG = {
-            UBIKE_LIST: 'https://apis.youbike.com.tw/json/station-min-yb2.json',
-            UBIKE_REALTIME: 'https://apis.youbike.com.tw/tw2/parkingInfo',
-            IBUS_API: 'https://ibus.tbkc.gov.tw/ibus/graphql',
-            SHORTBREAD_STYLE: 'https://potatosserver.github.io/map/shortbread.json'
-        };
+    <div class="input-row">
+        <span class="material-icons" style="color:#d93025; font-size: 20px;">place</span>
+        <div class="input-box">
+            <input type="text" id="end-input" placeholder="輸入目的地" oninput="handleInput('end', this.value)" />
+        </div>
+        <div class="icon-btn" id="btn-pick-end" onclick="togglePickMode('end')" title="地圖選點">
+            <span class="material-icons">touch_app</span>
+        </div>
+        <div class="icon-btn" onclick="clearEnd()" title="清除">
+            <span class="material-icons">close</span>
+        </div>
+    </div>
+    
+    <div id="suggestions"></div>
+</div>
 
-        const STATE = {
-            map: null, busCluster: null, bikeCluster: null,
-            dataBus: [], dataBike: [], markersMap: { bus: {}, bike: {} },
-            currentContext: null, 
-            pendingRouteId: null, 
-            pendingStationId: null,
-            autoRefreshTimer: null,
-            userMarker: null, userAccuracy: null,
-            geoWatcherId: null
-        };
+<!-- 底部導航面板 -->
+<div id="nav-footer">
+    <div class="nav-info-container">
+        <div class="route-meta">
+            <h1 id="route-time">計算中...</h1>
+            <span id="route-dist">--</span>
+        </div>
+        <button id="btn-start-nav" onclick="checkAndStartNav()">開始導航</button>
+    </div>
+</div>
 
-        // 預處理樣式檔，確保中文優先顯示
-        function preprocessStyle(style) {
-            if (!style || !style.layers) return style;
-            for (const layer of style.layers) {
-                if (layer.layout && layer.layout['text-field']) {
-                    layer.layout['text-field'] = [
-                        'coalesce',
-                        ['get', 'name:zh-Hant'],
-                        ['get', 'name:zh'],
-                        ['get', 'name:en'],
-                        ['get', 'name']
-                    ];
-                }
-            }
-            return style;
-        }
+<!-- 導航指令卡 -->
+<div id="turn-instruction">
+    <div class="turn-body">
+        <div class="turn-left">
+            <span class="material-icons turn-icon-large" id="turn-icon">straight</span>
+            <div class="turn-text-group">
+                <div id="turn-dist">200 公尺後</div>
+                <div id="turn-text">直行 進入中山北路</div>
+            </div>
+        </div>
+        <div class="turn-actions">
+            <button class="glass-btn" onclick="openStepsPanel()" title="列表">
+                <span class="material-icons">format_list_bulleted</span>
+            </button>
+            <button class="glass-btn" onclick="toggleVoice()" title="語音">
+                <span class="material-icons" id="voice-icon">volume_up</span>
+            </button>
+        </div>
+    </div>
+</div>
 
-        window.onload = async () => {
-            // 階段 1: 初始化地圖 (向量圖磚)
-            await initMap();
-            
-            initSidebarGestures();
-            
-            // 階段 2: 載入公車
-            await loadBusData();
-            
-            // 階段 3: 載入 YouBike
-            await loadBikeData();
-            
-            initialLocateUser(); 
+<button id="btn-exit-nav" onclick="exitNavigationMode()">
+    <span class="material-icons" style="font-size: 32px;">close</span>
+</button>
 
-            const loading = document.getElementById('loading-screen');
-            loading.style.opacity = '0';
-            loading.classList.remove('visible');
-            setTimeout(() => loading.remove(), 500);
-            
-            if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.register('./service-worker.js')
-                    .then(reg => console.log('Service Worker Registered!', reg))
-                    .catch(err => console.error('Service Worker Registration Failed:', err));
-            }
-        };
+<div id="steps-panel">
+    <div class="steps-header">
+        <span>路徑詳情</span>
+        <div class="icon-btn" onclick="closeStepsPanel()">
+            <span class="material-icons">keyboard_arrow_down</span>
+        </div>
+    </div>
+    <ul class="steps-list" id="steps-list-container"></ul>
+</div>
 
-        function updateLoading(txt) { document.getElementById('loading-text').innerText = txt; }
+<div id="loading-indicator">
+    <div class="spinner"></div>
+    <div class="loading-text">路徑規劃中...</div>
+</div>
 
-        function showToast(msg, type = 'info') {
-            const container = document.getElementById('toast-container');
-            const text = document.getElementById('toast-text');
-            const icon = document.getElementById('toast-icon');
-            text.innerText = msg;
-            
-            if (type === 'error') { icon.innerText = 'error'; icon.className = 'material-icons-round text-red-500 text-xl'; } 
-            else if (type === 'success') { icon.innerText = 'check_circle'; icon.className = 'material-icons-round text-green-500 text-xl'; } 
-            else { icon.innerText = 'info'; icon.className = 'material-icons-round text-blue-500 text-xl'; }
+<script>
+  const graphHopperKey = '7cb4eb19-e0f4-40a3-a5e0-f2c039366f32'; 
+  const style3D = 'https://tiles.openfreemap.org/styles/liberty';
 
-            container.classList.add('show');
-            if (window.toastTimeout) clearTimeout(window.toastTimeout);
-            window.toastTimeout = setTimeout(() => { container.classList.remove('show'); }, 3000);
-        }
+  let map, geolocateControl;
+  let startCoords = null, endCoords = null;
+  let startMarker = null, endMarker = null;
+  let currentRoutePath = null; 
+  let fullRouteCoords = []; 
+  let isNavigating = false;
+  let navLocationHandler = null;
+  let activeSearchType = 'end';
+  let pickMode = null; 
+  let isVoiceEnabled = true;
+  let lastSpokenText = "";
+  const synth = window.speechSynthesis;
 
-        // --- 彈窗與跳轉邏輯 ---
-        function confirmRedirect(routeId, routeName, stationId) {
-            STATE.pendingRouteId = routeId;
-            STATE.pendingStationId = stationId;
-            document.getElementById('nav-route-name').innerText = routeName;
-            document.getElementById('nav-modal').classList.remove('hidden');
-            history.pushState({ modal: 'nav' }, null, '');
-        }
+  const loadingIndicator = document.getElementById('loading-indicator');
+  const navFooter = document.getElementById('nav-footer');
+  const stepsPanel = document.getElementById('steps-panel');
 
-        function doRedirect() {
-            if (STATE.pendingRouteId && STATE.pendingStationId) {
-                window.location.href = `https://kaohsiung-live-bus.pages.dev/?page=tracker&route=${STATE.pendingRouteId}&station=${STATE.pendingStationId}`;
-            } else if (STATE.pendingRouteId) {
-                window.location.href = `https://kaohsiung-live-bus.pages.dev/?page=tracker&route=${STATE.pendingRouteId}`;
-            }
-        }
+  function initMap() {
+    map = new maplibregl.Map({
+      container: 'map',
+      style: style3D,
+      center: [121.5, 25.04],
+      zoom: 15,
+      pitch: 0,
+      bearing: 0,
+      antialias: true
+    });
 
-        function cancelRedirect() { history.back(); }
+    map.on('load', () => {
+        geolocateControl = new maplibregl.GeolocateControl({
+            positionOptions: { enableHighAccuracy: true },
+            trackUserLocation: true,
+            showUserHeading: true
+        });
+        map.addControl(geolocateControl);
+        resetToUserLocation();
 
-        window.addEventListener('popstate', (e) => {
-            const modal = document.getElementById('nav-modal');
-            if (!modal.classList.contains('hidden')) {
-                modal.classList.add('hidden');
-                STATE.pendingRouteId = null;
-                STATE.pendingStationId = null;
+        map.on('click', (e) => {
+            if (pickMode) {
+                if (pickMode === 'start') setStartPoint(e.lngLat, "地圖已選點");
+                else if (pickMode === 'end') setEndPoint(e.lngLat, "地圖已選點");
+                togglePickMode(null);
             }
         });
+    });
+  }
 
-        // --- 自動更新邏輯 ---
-        function startAutoRefresh() {
-            stopAutoRefresh(); 
-            if (!STATE.currentContext) return;
-            STATE.autoRefreshTimer = setInterval(() => {
-                if (document.getElementById('sidebar').classList.contains('active')) {
-                    refreshData(true); 
-                } else {
-                    stopAutoRefresh(); 
-                }
-            }, 30000); 
-        }
+  // ==========================================
+  // 超穩定繪圖函式 (混合暴力版邏輯與美觀樣式)
+  // ==========================================
+  function drawRoute(geoJsonCoords) {
+      console.log("開始繪圖，點數:", geoJsonCoords.length);
+      
+      const sourceId = 'final-route-source';
+      const bgLayerId = 'final-route-bg';
+      const fgLayerId = 'final-route-fg';
 
-        function stopAutoRefresh() {
-            if (STATE.autoRefreshTimer) {
-                clearInterval(STATE.autoRefreshTimer);
-                STATE.autoRefreshTimer = null;
-            }
-        }
-        
-        // --- 定位功能 ---
-        function updateUserLocation(pos) {
-            const { latitude, longitude, accuracy } = pos.coords;
-            if (STATE.userAccuracy) STATE.map.removeLayer(STATE.userAccuracy);
-            if (STATE.userMarker) STATE.map.removeLayer(STATE.userMarker);
-            
-            STATE.userAccuracy = L.circle([latitude, longitude], { radius: accuracy, color: '#3b82f6', fillOpacity: 0.1 }).addTo(STATE.map);
-            STATE.userMarker = L.marker([latitude, longitude], {
-                icon: L.divIcon({ className: 'bg-blue-600 border-2 border-white rounded-full shadow-lg pulse-ring', iconSize: [14, 14] })
-            }).addTo(STATE.map);
-        }
+      // 1. 強制移除舊圖層 (不管存不存在)
+      if (map.getLayer(fgLayerId)) map.removeLayer(fgLayerId);
+      if (map.getLayer(bgLayerId)) map.removeLayer(bgLayerId);
+      if (map.getSource(sourceId)) map.removeSource(sourceId);
 
-        function initialLocateUser() {
-            if (!navigator.geolocation) return;
-            navigator.geolocation.getCurrentPosition((pos) => {
-                updateUserLocation(pos);
-                STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17, { animate: true, duration: 0.8 }); 
-            }, (err) => {
-                console.warn("Initial Geolocation failed:", err.message);
-            }, { timeout: 5000, enableHighAccuracy: true, maximumAge: 60000 });
-        }
+      // 2. 建立資料源 (強制轉換座標型別，避免字串問題)
+      const cleanCoords = geoJsonCoords.map(c => [parseFloat(c[0]), parseFloat(c[1])]);
 
-        function locateUser() {
-            const locIcon = document.querySelector('#search-box button:last-child span');
+      map.addSource(sourceId, {
+          type: 'geojson',
+          data: {
+              type: 'Feature',
+              geometry: { type: 'LineString', coordinates: cleanCoords }
+          }
+      });
 
-            if (!navigator.geolocation) return showToast('瀏覽器不支援定位', 'error');
+      // 3. 繪製底層 (白色寬邊框，模擬路徑邊緣)
+      map.addLayer({
+          id: bgLayerId,
+          type: 'line',
+          source: sourceId,
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: {
+              'line-color': '#ffffff', 
+              'line-width': 12,        
+              'line-opacity': 0.9
+          }
+      });
 
-            if (STATE.geoWatcherId) {
-                navigator.geolocation.clearWatch(STATE.geoWatcherId);
-                STATE.geoWatcherId = null;
-                locIcon.innerText = 'my_location';
-                showToast('已停止持續定位', 'info');
-                return;
-            }
+      // 4. 繪製上層 (Google Blue 核心路徑)
+      map.addLayer({
+          id: fgLayerId,
+          type: 'line',
+          source: sourceId,
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: {
+              'line-color': '#4285F4', 
+              'line-width': 8,
+              'line-opacity': 1.0
+          }
+      });
+      
+      console.log("繪圖完成");
+  }
 
-            showToast('持續定位已啟動...', 'info');
-            locIcon.innerText = 'gps_fixed';
+  function togglePickMode(mode) {
+      pickMode = (pickMode === mode) ? null : mode;
+      const btnStart = document.getElementById('btn-pick-start');
+      const btnEnd = document.getElementById('btn-pick-end');
+      const canvas = map.getCanvas();
 
-            const successCallback = (pos) => {
-                updateUserLocation(pos);
-                // 只有當用戶位置超出當前視野時才移動地圖，避免干擾瀏覽
-                if (!STATE.map.getBounds().contains([pos.coords.latitude, pos.coords.longitude])) {
-                     STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17);
-                }
-            };
-            
-            const errorCallback = (err) => {
-                showToast('持續定位失敗', 'error'); 
-                if (STATE.geoWatcherId) navigator.geolocation.clearWatch(STATE.geoWatcherId);
-                STATE.geoWatcherId = null;
-                locIcon.innerText = 'my_location';
-            };
+      btnStart.classList.remove('active');
+      btnEnd.classList.remove('active');
+      canvas.classList.remove('crosshair-cursor'); 
 
-            STATE.geoWatcherId = navigator.geolocation.watchPosition(
-                successCallback, 
-                errorCallback, 
-                { timeout: 15000, enableHighAccuracy: true, maximumAge: 0 } 
-            );
-        }
+      if (pickMode === 'start') {
+          btnStart.classList.add('active');
+          map.getCanvas().style.cursor = 'crosshair';
+          document.getElementById('start-input').placeholder = "請點擊地圖...";
+      } else if (pickMode === 'end') {
+          btnEnd.classList.add('active');
+          map.getCanvas().style.cursor = 'crosshair';
+          document.getElementById('end-input').placeholder = "請點擊地圖...";
+      } else {
+          map.getCanvas().style.cursor = '';
+          if(!startCoords) document.getElementById('start-input').placeholder = "起點 (預設我的位置)";
+          if(!endCoords) document.getElementById('end-input').placeholder = "輸入目的地";
+      }
+  }
 
-        async function refreshData(isAuto = false) { 
-            if (!STATE.currentContext) return;
-            
-            const btnIcon = document.querySelector('#refresh-btn span');
-            if (!isAuto) { 
-                btnIcon.classList.add('spin-anim');
-            }
-            
-            const { type, data } = STATE.currentContext;
-            const content = document.getElementById('sb-content');
-            let refreshSuccess = false; 
+  function checkAndStartNav() {
+      const startVal = document.getElementById('start-input').value;
+      if (startVal === "我的位置") {
+          enterNavigationMode();
+      } else {
+          renderRouteSteps();
+          openStepsPanel();
+          map.easeTo({ pitch: 0, bearing: 0 });
+      }
+  }
 
-            if (type === 'bus') {
-                const busStationId = data.id; 
-                if(busStationId) {
-                    const arrivals = await getBusArrivals(busStationId);
-                    renderBusContent(arrivals, content);
-                    if (arrivals) refreshSuccess = true;
-                }
-            } else if (type === 'bike') {
-                const bikeStationNo = data.station_no; 
-                if(bikeStationNo) {
-                    const info = await getBikeRealtime(bikeStationNo);
-                    renderBikeContent(info, content);
-                    if (info) refreshSuccess = true;
-                }
-            }
+  function renderRouteSteps() {
+      const listContainer = document.getElementById('steps-list-container');
+      listContainer.innerHTML = '';
+      if (!currentRoutePath || !currentRoutePath.instructions) return;
+      currentRoutePath.instructions.forEach(ins => {
+          let icon = 'straight';
+          if (ins.sign === -2 || ins.sign === -1) icon = 'turn_left';
+          if (ins.sign === 2 || ins.sign === 1) icon = 'turn_right';
+          if (ins.sign === 4) icon = 'flag';
+          if (ins.sign === 0) icon = 'straight';
+          
+          const li = document.createElement('li');
+          li.className = 'step-item';
+          li.innerHTML = `
+            <span class="material-icons step-icon">${icon}</span>
+            <div class="step-text">${ins.text}</div>
+            <div class="step-dist">${formatDist(ins.distance)}</div>
+          `;
+          listContainer.appendChild(li);
+      });
+  }
+  
+  function formatDist(m) {
+      if (m > 1000) return (m/1000).toFixed(1) + " km";
+      return Math.round(m) + " m";
+  }
 
-            if (!isAuto) {
-                setTimeout(() => { 
-                    btnIcon.classList.remove('spin-anim'); 
-                    if (refreshSuccess) {
-                        showToast('即時資料已更新', 'success'); 
-                    } else {
-                        showToast('資料更新失敗', 'error'); 
-                    }
-                }, 600);
-            }
-        }
+  function openStepsPanel() {
+      if(document.getElementById('steps-list-container').innerHTML === '') renderRouteSteps();
+      stepsPanel.classList.add('open');
+  }
+  function closeStepsPanel() { stepsPanel.classList.remove('open'); }
 
-        async function initMap() {
-            // 1. 初始化地圖
-            STATE.map = L.map('map', { 
-                zoomControl: false,
-                maxZoom: 22,
-                preferCanvas: true // 讓 Leaflet 效能好一點
-            }).setView([22.6273, 120.3014], 17);
+  function resetToUserLocation() {
+      if (isNavigating) return;
+      togglePickMode(null);
+      geolocateControl.trigger();
+      geolocateControl.once('geolocate', (e) => {
+          const userCoords = { lng: e.coords.longitude, lat: e.coords.latitude };
+          startCoords = userCoords;
+          document.getElementById('start-input').value = "我的位置";
+          if (startMarker) { startMarker.remove(); startMarker = null; }
+          map.flyTo({ center: userCoords, zoom: 16, pitch: 0 });
+          if (endCoords) calculateRoute();
+      });
+  }
 
-            // 2. 載入向量樣式
-            try {
-                const response = await fetch(CONFIG.SHORTBREAD_STYLE);
-                let style = await response.json();
-                style = preprocessStyle(style);
+  function setStartPoint(lngLat, name) {
+      if (isNavigating) return;
+      startCoords = lngLat;
+      document.getElementById('start-input').value = name;
+      document.getElementById('suggestions').style.display = 'none';
+      if (startMarker) startMarker.remove();
+      startMarker = new maplibregl.Marker({ color: '#1a73e8', draggable: true }).setLngLat(lngLat).addTo(map);
+      startMarker.on('dragend', () => { startCoords = startMarker.getLngLat(); if (endCoords) calculateRoute(); });
+      map.flyTo({ center: lngLat, zoom: 16, pitch: 0 });
+      if (endCoords) calculateRoute();
+  }
 
-                L.maplibreGL({
-                    style: style,
-                    maplibreGLOptions: {
-                        crossOrigin: 'anonymous',
-                        fadeDuration: 0, // 關閉淡入動畫，讓載入感更直接
-                        // [關鍵] 告訴 MapLibre 不要下載字型，直接用系統的，
-                        // 這能省去大量的運算時間，解決「地圖載好但字出不來」的卡頓感。
-                        localIdeographFontFamily: "'Noto Sans TC', 'Microsoft JhengHei', 'PingFang TC', sans-serif"
-                    },
-                    padding: 0.1, // 減少視野外渲染範圍
-                    attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                }).addTo(STATE.map);
+  function setEndPoint(lngLat, name) {
+      if (isNavigating) return;
+      endCoords = lngLat;
+      document.getElementById('end-input').value = name;
+      document.getElementById('suggestions').style.display = 'none';
+      
+      if (endMarker) endMarker.remove();
+      endMarker = new maplibregl.Marker({ color: '#d93025', draggable: true }).setLngLat(lngLat).addTo(map);
+      endMarker.on('dragend', () => { endCoords = endMarker.getLngLat(); if (startCoords) calculateRoute(); });
+      
+      if (startCoords) calculateRoute();
+  }
 
-                console.log('Shortbread Vector Style Loaded');
-            } catch (error) {
-                console.error("Vector style error:", error);
-                showToast("地圖載入異常", "error");
-            }
+  function enterNavigationMode() {
+      if (!currentRoutePath) return;
+      isNavigating = true;
+      lastSpokenText = "";
+      
+      document.getElementById('search-panel').style.top = '-400px'; 
+      navFooter.classList.remove('show');
+      document.getElementById('turn-instruction').style.display = 'block';
+      document.getElementById('btn-exit-nav').style.display = 'flex';
+      closeStepsPanel();
 
-            L.control.zoom({ position: 'bottomright' }).addTo(STATE.map);
-            STATE.map.on('click', () => toggleSidebar(false));
+      navLocationHandler = (e) => {
+          if (!isNavigating) return;
+          const coords = e.coords;
+          const heading = coords.heading || map.getBearing();
+          
+          map.easeTo({
+              center: [coords.longitude, coords.latitude],
+              zoom: 19, pitch: 60, bearing: heading, 
+              duration: 1000, easing: (t) => t
+          });
+      };
 
-            // ... (後面的聚合設定保持不變) ...
-            const clusterOptions = (className) => ({
-                disableClusteringAtZoom: 17,
-                showCoverageOnHover: false,
-                maxClusterRadius: 60,
-                // 因為你說站點載入很快，這裡可以使用預設設定，不一定要 chunkedLoading
-                iconCreateFunction: (c) => L.divIcon({ 
-                    html: `<div>${c.getChildCount()}</div>`, 
-                    className: `marker-cluster ${className}`, 
-                    iconSize: [40, 40] 
-                })
-            });
+      geolocateControl.on('geolocate', navLocationHandler);
+      geolocateControl.trigger();
 
-            STATE.busCluster = L.markerClusterGroup(clusterOptions('marker-cluster-bus'));
-            STATE.bikeCluster = L.markerClusterGroup(clusterOptions('marker-cluster-ubike'));
+      if (startCoords) map.easeTo({ pitch: 60, bearing: 0, zoom: 19, center: startCoords });
+      if (currentRoutePath.instructions && currentRoutePath.instructions.length > 0) updateTurnInfo(currentRoutePath.instructions[0]);
+      
+      speak("開始導航");
+  }
 
-            STATE.map.addLayer(STATE.busCluster);
-            STATE.map.addLayer(STATE.bikeCluster);
-        }
-        async function fetchGraphQL(query) {
-            try {
-                const response = await fetch(CONFIG.IBUS_API, {
-                    method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'Origin': 'https://ibus.tbkc.gov.tw',
-                        'Referer': 'https://ibus.tbkc.gov.tw/'
-                    },
-                    body: JSON.stringify({ query })
-                });
+  function exitNavigationMode() {
+      isNavigating = false;
+      synth.cancel();
+      if (navLocationHandler) {
+          geolocateControl.off('geolocate', navLocationHandler);
+          navLocationHandler = null;
+      }
+      document.getElementById('search-panel').style.top = '16px';
+      document.getElementById('turn-instruction').style.display = 'none';
+      document.getElementById('btn-exit-nav').style.display = 'none';
+      closeStepsPanel();
+      navFooter.classList.add('show');
+      map.easeTo({ pitch: 0, zoom: 16, bearing: 0 });
+      
+      if (fullRouteCoords.length > 0) drawRoute(fullRouteCoords);
+  }
 
-                if (!response.ok) {
-                    const text = await response.text();
-                    throw new Error(`HTTP ${response.status}: ${text.substring(0, 100)}`);
-                }
-                return await response.json();
-            } catch (e) {
-                throw e;
-            }
-        }
+  let debounceTimer;
+  function handleInput(type, val) {
+      activeSearchType = type;
+      if(pickMode) togglePickMode(null);
+      clearTimeout(debounceTimer);
+      if(!val) { document.getElementById('suggestions').style.display = 'none'; return; }
+      debounceTimer = setTimeout(async () => {
+          try {
+              const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(val)}&limit=5&addressdetails=1&countrycodes=tw`);
+              const data = await res.json();
+              const container = document.getElementById('suggestions');
+              container.innerHTML = '';
+              if (data.length > 0) {
+                  container.style.display = 'block';
+                  data.forEach(item => {
+                      const div = document.createElement('div');
+                      div.className = 'suggestion-item';
+                      const title = item.display_name.split(',')[0];
+                      div.innerHTML = `<span class="s-title">${title}</span>`;
+                      div.onclick = () => {
+                          const coords = { lng: parseFloat(item.lon), lat: parseFloat(item.lat) };
+                          if (activeSearchType === 'start') setStartPoint(coords, title);
+                          else setEndPoint(coords, title);
+                      };
+                      container.appendChild(div);
+                  });
+              }
+          } catch(e){}
+      }, 500);
+  }
 
-        async function fetchBusStationsGodMode() {
-            const uniqueStations = new Map();
-            try {
-                const listQuery = `query { routes(lang: "zh") { edges { node { id name } } } }`;
-                const listData = await fetchGraphQL(listQuery);
-                const allRoutes = listData.data.routes.edges;
+  async function calculateRoute() {
+      if (!startCoords || !endCoords) return;
+      loadingIndicator.style.display = 'block';
 
-                const bigQueryBody = allRoutes.map(edge => {
-                    const rid = edge.node.id;
-                    return `
-                        r_${rid}: route(xno: ${rid}, lang: "zh") {
-                            stations { edges { node { id name lat lon } } }
-                        }
-                    `;
-                }).join('\n');
+      const params = new URLSearchParams();
+      params.append('key', graphHopperKey);
+      params.append('profile', 'car');
+      params.append('locale', 'zh-TW');
+      params.append('elevation', 'false');
+      params.append('instructions', 'true');
+      params.append('points_encoded', 'false'); 
+      params.append('point', `${startCoords.lat},${startCoords.lng}`);
+      params.append('point', `${endCoords.lat},${endCoords.lng}`);
 
-                const godQuery = `query GOD_MODE_FETCH { ${bigQueryBody} }`;
-                const result = await fetchGraphQL(godQuery);
+      try {
+          const res = await fetch(`https://graphhopper.com/api/1/route?${params.toString()}`);
+          if (!res.ok) throw new Error("API Error");
+          const data = await res.json();
+          
+          if (data.paths && data.paths.length > 0) {
+              const path = data.paths[0];
+              currentRoutePath = path;
+              fullRouteCoords = path.points.coordinates;
+              
+              // 繪製路徑
+              drawRoute(fullRouteCoords);
 
-                if (result.errors) {
-                    console.error(result.errors);
-                    throw new Error("伺服器回傳錯誤");
-                }
+              const mins = Math.round(path.time/60000);
+              const distKm = (path.distance/1000).toFixed(1);
+              
+              document.getElementById('route-time').innerText = mins + " 分鐘";
+              document.getElementById('route-dist').innerText = "(" + distKm + " 公里)";
+              document.getElementById('btn-start-nav').disabled = false;
+              
+              navFooter.classList.add('show');
+              
+              const bounds = new maplibregl.LngLatBounds();
+              fullRouteCoords.forEach(c => bounds.extend(c));
+              map.fitBounds(bounds, { padding: 80 });
+              
+              renderRouteSteps();
+          }
+      } catch (e) { 
+          alert("無法規劃路徑: " + e.message);
+      } finally { 
+          loadingIndicator.style.display = 'none'; 
+      }
+  }
 
-                if (result.data) {
-                    Object.values(result.data).forEach(routeData => {
-                        if (routeData && routeData.stations) {
-                            routeData.stations.edges.forEach(e => {
-                                const s = e.node;
-                                if (!uniqueStations.has(s.id)) {
-                                    uniqueStations.set(s.id, {
-                                        id: s.id, name: s.name, lat: s.lat, lon: s.lon
-                                    });
-                                }
-                            });
-                        }
-                    });
-                }
-                return Array.from(uniqueStations.values());
+  function updateTurnInfo(ins) {
+      document.getElementById('turn-text').innerText = ins.text;
+      document.getElementById('turn-dist').innerText = Math.round(ins.distance) + " 公尺";
+      let icon = 'straight';
+      if (ins.sign === -2 || ins.sign === -1) icon = 'turn_left';
+      if (ins.sign === 2 || ins.sign === 1) icon = 'turn_right';
+      if (ins.sign === 4) icon = 'flag';
+      if (ins.sign === 6) icon = 'roundabout_right';
+      document.getElementById('turn-icon').innerText = icon;
+      speak(ins.text);
+  }
 
-            } catch (e) {
-                console.error("God Mode Fetch Failed:", e);
-                showToast(`公車資料抓取失敗: ${e.message.substring(0, 50)}...`, 'error');
-                updateLoading("💥 公車資料載入失敗");
-                return []; 
-            }
-        }
+  function toggleVoice() {
+      isVoiceEnabled = !isVoiceEnabled;
+      const icon = document.getElementById('voice-icon');
+      icon.innerText = isVoiceEnabled ? 'volume_up' : 'volume_off';
+      if(isVoiceEnabled) speak("語音開啟"); else synth.cancel();
+  }
 
-        async function loadBusData() {
-            updateLoading('正在載入公車站點 (2/3)');
-            try {
-                STATE.dataBus = await fetchBusStationsGodMode(); 
-                const markers = STATE.dataBus.map(s => {
-                    if(!s.lat || !s.lon) return null;
-                    const marker = L.marker([s.lat, s.lon], { icon: L.divIcon({ className: 'custom-icon bus-icon', html: '<span class="material-icons-outlined text-lg">directions_bus</span>', iconSize: [30, 30] }) });
-                    marker.on('click', (e) => { L.DomEvent.stopPropagation(e); handleMarkerClick(marker, 'bus', s); });
-                    STATE.markersMap.bus[s.id] = marker;
-                    return marker;
-                }).filter(m => m);
-                STATE.busCluster.addLayers(markers);
-            } catch (e) { console.error(e); }
-        }
+  function speak(text) {
+      if (!isVoiceEnabled || !text || text === lastSpokenText) return;
+      synth.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'zh-TW';
+      synth.speak(utterance);
+      lastSpokenText = text;
+  }
 
-        async function loadBikeData() {
-            updateLoading('正在載入 YouBike 站點 (3/3)');
-            try {
-                const res = await fetch(CONFIG.UBIKE_LIST);
-                const data = await res.json();
-                STATE.dataBike = data.filter(s => s.lat > 22.4 && s.lat < 23.0 && s.lng > 120.1 && s.lng < 120.8);
-                const markers = STATE.dataBike.map(s => {
-                    const marker = L.marker([s.lat, s.lng], { icon: L.divIcon({ className: 'custom-icon ubike-icon', html: '<span class="material-icons-round text-lg">pedal_bike</span>', iconSize: [30, 30] }) });
-                    marker.on('click', (e) => { L.DomEvent.stopPropagation(e); handleMarkerClick(marker, 'bike', s); });
-                    STATE.markersMap.bike[s.station_no] = marker;
-                    return marker;
-                }).filter(m => m);
-                STATE.bikeCluster.addLayers(markers);
-            } catch (e) { console.error(e); }
-        }
+  function clearEnd() {
+      document.getElementById('end-input').value = '';
+      if(pickMode) togglePickMode(null);
+      if (endMarker) endMarker.remove();
+      endMarker = null; endCoords = null;
+      
+      // 清除圖層
+      if (map.getLayer('final-route-fg')) map.removeLayer('final-route-fg');
+      if (map.getLayer('final-route-bg')) map.removeLayer('final-route-bg');
+      if (map.getSource('final-route-source')) map.removeSource('final-route-source');
 
-        function handleMarkerClick(marker, type, data) {
-            const lat = type === 'bus' ? data.lat : data.lat;
-            const lon = type === 'bus' ? data.lon : data.lng;
-            STATE.map.flyTo([lat, lon], STATE.map.getZoom(), { animate: true, duration: 0.8 });
-            openSidebar(type, data);
-        }
+      navFooter.classList.remove('show');
+      currentRoutePath = null;
+      fullRouteCoords = [];
+  }
 
-        function toggleSidebar(show) {
-            const sb = document.getElementById('sidebar');
-            sb.style.transform = '';
-            if (show) { 
-                sb.classList.add('active'); 
-                document.body.classList.add('sidebar-open'); 
-            }
-            else { 
-                sb.classList.remove('active'); 
-                document.body.classList.remove('sidebar-open');
-                stopAutoRefresh(); 
-            }
-        }
-
-        function initSidebarGestures() {
-            const sidebar = document.getElementById('sidebar');
-            const dragArea = document.getElementById('drag-area');
-            let startY = 0, currentY = 0, isDragging = false;
-
-            dragArea.addEventListener('touchstart', (e) => {
-                if (window.innerWidth >= 768) return;
-                startY = e.touches[0].clientY;
-                isDragging = true;
-                sidebar.style.transition = 'none';
-            }, { passive: true });
-
-            dragArea.addEventListener('touchmove', (e) => {
-                if (!isDragging || window.innerWidth >= 768) return;
-                currentY = e.touches[0].clientY;
-                const diff = currentY - startY;
-                if (diff > 0) sidebar.style.transform = `translateY(${diff}px)`;
-            }, { passive: true });
-
-            dragArea.addEventListener('touchend', (e) => {
-                if (!isDragging || window.innerWidth >= 768) return;
-                isDragging = false;
-                sidebar.style.transition = 'transform 0.3s cubic-bezier(0.25, 1, 0.5, 1)';
-                if ((currentY - startY) > 100) toggleSidebar(false);
-                else sidebar.style.transform = '';
-            });
-        }
-
-        async function openSidebar(type, data) {
-            toggleSidebar(true);
-            STATE.currentContext = { type, data };
-            const content = document.getElementById('sb-content');
-            const badge = document.getElementById('sb-badge');
-            const title = document.getElementById('sb-title');
-            const subtitle = document.getElementById('sb-subtitle');
-
-            content.innerHTML = `<div class="animate-pulse space-y-4"><div class="h-24 bg-gray-200 rounded-2xl"></div><div class="h-12 bg-gray-200 rounded-xl"></div></div>`;
-
-            if (type === 'bus') {
-                badge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold mb-2 bg-blue-100 text-blue-700';
-                badge.innerHTML = '<span class="material-icons-outlined text-sm mr-1">directions_bus</span> 公車';
-                title.innerText = data.name;
-                subtitle.innerText = `ID: ${data.id}`;
-                const arrivals = await getBusArrivals(data.id);
-                renderBusContent(arrivals, content);
-            } else {
-                badge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold mb-2 bg-amber-100 text-amber-700';
-                badge.innerHTML = '<span class="material-icons-round text-sm mr-1">pedal_bike</span> YouBike 2.0';
-                title.innerText = data.name_tw;
-                subtitle.innerText = data.address_tw;
-                const info = await getBikeRealtime(data.station_no);
-                renderBikeContent(info, content);
-            }
-            startAutoRefresh(); 
-        }
-
-        function renderBusContent(data, container) {
-            if (!data) { container.innerHTML = '<div class="p-4 bg-red-50 text-red-600 rounded-lg text-center text-sm">連線失敗 (CORS) 或 iBus 查詢錯誤</div>'; return; }
-            if (data.length === 0) { container.innerHTML = '<div class="p-8 text-center text-slate-400"><span class="material-icons-outlined text-4xl mb-2">bus_alert</span><p>無營運路線</p></div>'; return; }
-            
-            const stationId = STATE.currentContext.data.id; 
-
-            let html = '<div class="space-y-3">';
-            data.forEach(r => {
-                let timeHtml = `<span class="text-gray-400 font-bold text-sm">未發車</span>`;
-                let statusClass = 'bg-white border-gray-100';
-                if (r.isSuspended) timeHtml = `<span class="text-gray-500 text-sm">末班已過</span>`;
-                else if (r.etas?.[0]) {
-                    const min = r.etas[0].etaTime;
-                    if (min <= 1) { timeHtml = `<span class="text-red-600 font-bold flex items-center text-sm"><span class="material-icons-round text-sm mr-1 animate-pulse">campaign</span>進站中</span>`; statusClass = 'bg-red-50 border-red-100 shadow-sm'; }
-                    else if (min <= 3) timeHtml = `<span class="text-red-500 font-bold text-sm">即將到站</span>`;
-                    else timeHtml = `<span class="text-blue-600 font-bold text-lg">${min} <span class="text-xs font-normal text-slate-500">分</span></span>`;
-                } else if (r.comeTime) timeHtml = `<span class="text-slate-600 font-medium text-sm">${r.comeTime}</span>`;
-                
-                html += `
-                    <div onclick="confirmRedirect('${r.id}', '${r.name}', '${stationId}')" class="p-3 rounded-2xl border ${statusClass} flex items-center justify-between transition bg-white active:scale-95 cursor-pointer">
-                        <div class="flex-1 min-w-0 mr-3">
-                            <div class="flex items-center gap-2 flex-nowrap">
-                                <span class="text-lg font-bold text-slate-800 truncate min-w-0">${r.name}</span>
-                                <span class="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full flex-shrink-0 whitespace-nowrap">${r.dir}</span>
-                            </div>
-                        </div>
-                        <div class="text-right min-w-[80px]">${timeHtml}</div>
-                        <span class="material-icons-outlined text-slate-300 text-lg ml-2">chevron_right</span>
-                    </div>`;
-            });
-            container.innerHTML = html + '</div>';
-        }
-
-        function renderBikeContent(info, container) {
-            if (!info) { container.innerHTML = '<div class="p-4 bg-red-50 text-red-600 rounded-lg text-center">無法取得即時車位</div>'; return; }
-            const yb2 = info.available_spaces_detail.yb2;
-            const ybE = info.available_spaces_detail.eyb;
-            const empty = info.empty_spaces;
-            const time = new Date().toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit'});
-            const getNumColor = (n) => n > 3 ? 'text-slate-800' : (n > 0 ? 'text-orange-600' : 'text-gray-300');
-
-            container.innerHTML = `
-                <div class="space-y-4">
-                    <div class="grid grid-cols-2 gap-3">
-                        <div class="bg-gradient-to-br from-amber-50 to-amber-100 p-4 rounded-3xl shadow-sm border border-amber-200 relative overflow-hidden flex flex-col justify-between h-28">
-                            <div class="z-10"><span class="text-xs font-bold text-amber-700 uppercase tracking-wider block mb-1">一般車輛</span><div class="flex items-baseline"><span class="text-4xl font-black ${getNumColor(yb2)}">${yb2}</span><span class="text-xs text-amber-800 ml-1 font-medium">輛</span></div></div>
-                            <span class="material-icons-round absolute -right-3 -bottom-3 text-7xl text-amber-400 opacity-20">pedal_bike</span>
-                        </div>
-                        <div class="bg-gradient-to-br from-orange-50 to-orange-100 p-4 rounded-3xl shadow-sm border border-orange-200 relative overflow-hidden flex flex-col justify-between h-28">
-                            <div class="z-10"><div class="flex items-center justify-between mb-1"><span class="text-xs font-bold text-orange-700 uppercase tracking-wider">電輔車</span><span class="material-icons-round text-xs text-orange-600">bolt</span></div><div class="flex items-baseline"><span class="text-4xl font-black ${getNumColor(ybE)}">${ybE}</span><span class="text-xs text-orange-800 ml-1 font-medium">輛</span></div></div>
-                            <span class="material-icons-round absolute -right-3 -bottom-3 text-7xl text-orange-400 opacity-20">electric_bike</span>
-                        </div>
-                    </div>
-                    <div class="bg-gradient-to-br from-emerald-50 to-teal-100 p-5 rounded-3xl shadow-sm border border-emerald-200 flex justify-between items-center relative overflow-hidden">
-                        <div class="relative z-10"><div class="text-xs text-emerald-800 mb-1 font-bold uppercase tracking-wider">可歸還空位</div><div class="font-bold text-lg text-emerald-900">停車柱</div></div>
-                        <div class="text-5xl font-black text-emerald-600 relative z-10">${empty}</div>
-                        <span class="material-icons-outlined absolute right-0 top-0 text-9xl text-emerald-500 opacity-10 transform translate-x-4 -translate-y-2 pointer-events-none">local_parking</span>
-                    </div>
-                    <div class="text-center text-xs text-slate-400 mt-2 flex justify-center items-center gap-1"><span class="material-icons-outlined text-sm">schedule</span> 更新於 ${time}</div>
-                </div>`;
-        }
-
-        async function getBusArrivals(stationId) {
-            const qRoute = `query Q($ids:[Int!]!){stations(lang:"zh",ids:$ids){edges{node{... on Station{routes{edges{goBack node{id name}}}}}}}}`;
-            const qTime = `query T($t:[EstimateStationInput!]!){stationEstimates(targets:$t){edges{node{comeTime isSuspended etas{etaTime}}}}}`;
-            try {
-                const r1 = await fetch(CONFIG.IBUS_API, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ query: qRoute, variables: { ids: [parseInt(stationId, 10)] } }) });
-                const j1 = await r1.json();
-                const routeEdges = j1?.data?.stations?.edges?.[0]?.node?.routes?.edges;
-                if (!routeEdges) return null; 
-                const targets = routeEdges.map(e => ({ xno: parseInt(e.node.id, 10), goBack: parseInt(e.goBack, 10), stationId: parseInt(stationId, 10) }));
-                const r2 = await fetch(CONFIG.IBUS_API, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ query: qTime, variables: { t: targets } }) });
-                const j2 = await r2.json();
-                const estimates = j2.data.stationEstimates.edges;
-                return routeEdges.map((e, i) => ({ id: e.node.id, name: e.node.name, dir: e.goBack === 1 ? '去程' : '返程', ...estimates[i]?.node }));
-            } catch (e) { return null; }
-        }
-
-        async function getBikeRealtime(id) {
-            try {
-                const res = await fetch(CONFIG.UBIKE_REALTIME, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ station_no: [id] }) });
-                const j = await res.json();
-                return j.retVal?.data?.[0];
-            } catch (e) { return null; }
-        }
-
-        const searchInput = document.getElementById('search-input');
-        const resultsBox = document.getElementById('search-results');
-        const searchClear = document.getElementById('search-clear');
-
-        function toggleClearBtn() {
-            if (searchInput.value.length > 0) searchClear.classList.remove('hidden');
-            else searchClear.classList.add('hidden');
-        }
-
-        searchInput.addEventListener('input', (e) => {
-            toggleClearBtn();
-            const val = e.target.value.trim().toLowerCase();
-            if(val) doSearch(val);
-            else resultsBox.classList.remove('show');
-        });
-
-        searchClear.addEventListener('click', () => {
-            searchInput.value = '';
-            toggleClearBtn();
-            resultsBox.classList.remove('show');
-            searchInput.focus();
-        });
-
-        function calculateScore(item, key) {
-            const normalizedKey = key.toLowerCase();
-            const type = item.id ? 'bus' : 'bike'; 
-            
-            let name, sub;
-            if (type === 'bus') {
-                name = item.name;
-                sub = item.id.toString(); 
-            } else {
-                name = item.name_tw;
-                sub = item.address_tw; 
-            }
-            
-            const normalizedName = name.toLowerCase();
-            const normalizedSub = sub.toLowerCase();
-
-            let score = 0;
-
-            if (normalizedName === normalizedKey) {
-                score = 1000;
-            } 
-            else if (normalizedName.startsWith(normalizedKey)) {
-                score = 800 + 100 - normalizedName.length; 
-            }
-            else if (normalizedName.includes(normalizedKey)) {
-                score = 500 + 50 - normalizedName.indexOf(normalizedKey); 
-            }
-            else if (normalizedSub.includes(normalizedKey)) {
-                score = 200 + 50 - normalizedSub.indexOf(normalizedKey); 
-            }
-            
-            return score;
-        }
-
-        function doSearch(key) {
-            resultsBox.innerHTML = '';
-            
-            const allResults = [];
-
-            STATE.dataBus.forEach(s => {
-                const score = calculateScore(s, key);
-                if (score > 0) {
-                    allResults.push({ type: 'bus', data: s, score: score });
-                }
-            });
-
-            STATE.dataBike.forEach(s => {
-                const score = calculateScore(s, key);
-                if (score > 0) {
-                    allResults.push({ type: 'bike', data: s, score: score });
-                }
-            });
-            
-            allResults.sort((a, b) => b.score - a.score);
-            
-            const finalResults = allResults.slice(0, 15); 
-            
-            if(finalResults.length === 0) { 
-                resultsBox.innerHTML = '<div class="p-4 text-center text-slate-400 text-sm">找不到相關站點</div>'; 
-            } else { 
-                finalResults.forEach(r => appendResult(r.type, r.data)); 
-            }
-            
-            resultsBox.classList.add('show');
-        }
-
-        function appendResult(type, data) {
-            const div = document.createElement('div');
-            const name = type === 'bus' ? data.name : data.name_tw;
-            const sub = type === 'bus' ? `ID: ${data.id}` : data.address_tw;
-            const icon = type === 'bus' ? 'directions_bus' : 'pedal_bike';
-            const color = type === 'bus' ? 'bg-blue-100 text-blue-600' : 'bg-amber-100 text-amber-600';
-            
-            div.className = 'p-3 flex items-center hover:bg-slate-50 cursor-pointer border-b border-gray-50 last:border-0 transition';
-            div.innerHTML = `<div class="w-10 h-10 rounded-full ${color} flex items-center justify-center mr-3 shrink-0"><span class="material-icons-outlined text-lg">${icon}</span></div><div class="min-w-0"><div class="font-bold text-slate-700 text-sm truncate">${name}</div><div class="text-xs text-slate-400 truncate">${sub}</div></div>`;
-            
-            // --- 簡單粗暴版點擊事件 ---
-            div.onclick = () => {
-                // 1. 清理搜尋欄 UI
-                resultsBox.classList.remove('show');
-                searchInput.value = name;
-                toggleClearBtn();
-                
-                // 2. 取得相關資料
-                const id = type === 'bus' ? data.id : data.station_no;
-                const markerMap = type === 'bus' ? STATE.markersMap.bus : STATE.markersMap.bike;
-                const cluster = type === 'bus' ? STATE.busCluster : STATE.bikeCluster;
-                const lat = type === 'bus' ? data.lat : data.lat;
-                const lng = type === 'bus' ? data.lon : data.lng;
-
-                if (markerMap[id]) {
-                    // 3. 直接呼叫 zoomToShowLayer
-                    // 這個函式會自動處理：
-                    // a. 如果在聚合裡 -> 自動放大並展開
-                    // b. 如果已經在外面 -> 不做動作，直接執行 callback
-                    cluster.zoomToShowLayer(markerMap[id], () => {
-                        // 4. 展開後做兩件事：
-                        // 開啟側邊欄
-                        openSidebar(type, data);
-                        // 強制把地圖「滑」到中間 (PanTo 比 FlyTo 穩定，不會跟向量圖磚打架)
-                        STATE.map.panTo([lat, lng]); 
-                    });
-                } else {
-                    // 例外：萬一標記不存在 (極少見)，直接飛過去
-                    STATE.map.setView([lat, lng], 18);
-                    openSidebar(type, data);
-                }
-            };
-            // ----------------
-            
-            resultsBox.appendChild(div);
-        }
-
-        // --- 新增：監聽點擊事件，若點擊非搜尋框區域則關閉列表 ---
-        document.addEventListener('click', (e) => {
-            const searchContainer = document.querySelector('.search-container');
-            // 如果點擊目標不在 search-container 內，就移除 show class
-            if (!searchContainer.contains(e.target)) {
-                resultsBox.classList.remove('show');
-            }
-        });
-    </script>
+  initMap();
+</script>
 </body>
 </html>
