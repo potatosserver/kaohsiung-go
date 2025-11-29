@@ -875,7 +875,7 @@
             div.className = 'p-3 flex items-center hover:bg-slate-50 cursor-pointer border-b border-gray-50 last:border-0 transition';
             div.innerHTML = `<div class="w-10 h-10 rounded-full ${color} flex items-center justify-center mr-3 shrink-0"><span class="material-icons-outlined text-lg">${icon}</span></div><div class="min-w-0"><div class="font-bold text-slate-700 text-sm truncate">${name}</div><div class="text-xs text-slate-400 truncate">${sub}</div></div>`;
             
-            // --- 修改這裡 ---
+            // --- 修改點擊事件邏輯 ---
             div.onclick = () => {
                 resultsBox.classList.remove('show');
                 searchInput.value = name;
@@ -884,18 +884,34 @@
                 const id = type === 'bus' ? data.id : data.station_no;
                 const markerMap = type === 'bus' ? STATE.markersMap.bus : STATE.markersMap.bike;
                 const cluster = type === 'bus' ? STATE.busCluster : STATE.bikeCluster;
-                const lat = type === 'bus' ? data.lat : data.lat;
-                const lng = type === 'bus' ? data.lon : data.lng;
+                
+                // 取得目標座標
+                const targetLat = type === 'bus' ? data.lat : data.lat;
+                const targetLng = type === 'bus' ? data.lon : data.lng;
+                const targetLatLng = [targetLat, targetLng];
 
-                // [修正] 優先使用 cluster 的方法來移動，避免與 flyTo 衝突導致向量地圖卡住
                 if (markerMap[id]) {
-                    // 如果標記存在，讓聚合套件負責縮放並打開側邊欄
-                    cluster.zoomToShowLayer(markerMap[id], () => {
+                    const marker = markerMap[id];
+                    
+                    // 1. 檢查是否在目前視野範圍內
+                    const isInView = STATE.map.getBounds().contains(targetLatLng);
+                    
+                    // 2. 檢查是否是獨立顯示狀態 (沒有被收納在聚合群組裡)
+                    // getVisibleParent(marker) === marker 代表該圖釘已經獨立顯示
+                    const isUnclustered = cluster.getVisibleParent(marker) === marker;
+
+                    if (isInView && isUnclustered) {
+                        // 情況 A：在視野內 且 已經看得到圖釘 -> 不移動地圖，直接開側邊欄
                         openSidebar(type, data);
-                    });
+                    } else {
+                        // 情況 B：在視野外 或 被收納在聚合裡 -> 移動並縮放顯示
+                        cluster.zoomToShowLayer(marker, () => {
+                            openSidebar(type, data);
+                        });
+                    }
                 } else {
-                    // 萬一找不到標記(極少見)，才使用普通的 flyTo
-                    STATE.map.flyTo([lat, lng], 18, { animate: true, duration: 0.8 });
+                    // 例外狀況：找不到標記時，直接飛過去
+                    STATE.map.flyTo(targetLatLng, 18, { animate: true, duration: 0.8 });
                     openSidebar(type, data);
                 }
             };
