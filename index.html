@@ -533,7 +533,7 @@
                 STATE.dataBus = await fetchBusStationsGodMode(); 
                 const markers = STATE.dataBus.map(s => {
                     if(!s.lat || !s.lon) return null;
-                    const marker = L.marker([s.lat, s.lon], { icon: L.divIcon({ className: 'custom-icon bus-icon', html: '<span class="material-icons-outlined text-sm">directions_bus</span>', iconSize: [30, 30] }) });
+                    const marker = L.marker([s.lat, s.lon], { icon: L.divIcon({ className: 'custom-icon bus-icon', html: '<span class="material-icons-outlined text-lg">directions_bus</span>', iconSize: [30, 30] }) });
                     marker.on('click', (e) => { L.DomEvent.stopPropagation(e); handleMarkerClick(marker, 'bus', s); });
                     STATE.markersMap.bus[s.id] = marker;
                     return marker;
@@ -549,7 +549,7 @@
                 const data = await res.json();
                 STATE.dataBike = data.filter(s => s.lat > 22.4 && s.lat < 23.0 && s.lng > 120.1 && s.lng < 120.8);
                 const markers = STATE.dataBike.map(s => {
-                    const marker = L.marker([s.lat, s.lng], { icon: L.divIcon({ className: 'custom-icon ubike-icon', html: '<span class="material-icons-round text-sm">pedal_bike</span>', iconSize: [30, 30] }) });
+                    const marker = L.marker([s.lat, s.lng], { icon: L.divIcon({ className: 'custom-icon ubike-icon', html: '<span class="material-icons-round text-lg">pedal_bike</span>', iconSize: [30, 30] }) });
                     marker.on('click', (e) => { L.DomEvent.stopPropagation(e); handleMarkerClick(marker, 'bike', s); });
                     STATE.markersMap.bike[s.station_no] = marker;
                     return marker;
@@ -619,14 +619,14 @@
 
             if (type === 'bus') {
                 badge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold mb-2 bg-blue-100 text-blue-700';
-                badge.innerHTML = '<span class="material-icons-outlined text-lg mr-1">directions_bus</span> 公車';
+                badge.innerHTML = '<span class="material-icons-outlined text-sm mr-1">directions_bus</span> 公車';
                 title.innerText = data.name;
                 subtitle.innerText = `ID: ${data.id}`;
                 const arrivals = await getBusArrivals(data.id);
                 renderBusContent(arrivals, content);
             } else {
                 badge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold mb-2 bg-amber-100 text-amber-700';
-                badge.innerHTML = '<span class="material-icons-round text-lg mr-1">pedal_bike</span> YouBike 2.0';
+                badge.innerHTML = '<span class="material-icons-round text-sm mr-1">pedal_bike</span> YouBike 2.0';
                 title.innerText = data.name_tw;
                 subtitle.innerText = data.address_tw;
                 const info = await getBikeRealtime(data.station_no);
