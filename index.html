@@ -254,6 +254,7 @@
             dataBus: [], dataBike: [], markersMap: { bus: {}, bike: {} },
             currentContext: null, pendingRouteId: null, pendingStationId: null, pendingRouteName: null,
             autoRefreshTimer: null, userMarker: null, userAccuracy: null, geoWatcherId: null,
+            userPos: null, 
             sheetState: 'hidden'
         };
 
@@ -278,7 +279,6 @@
                 loading.classList.remove('visible');
                 setTimeout(() => loading.remove(), 500);
             });
-            // 確保這行有執行，並使用更強制的設定
             initialLocateUser(); 
             if ('serviceWorker' in navigator) navigator.serviceWorker.register('./service-worker.js').catch(e=>{});
             
@@ -319,6 +319,7 @@
         function openTracker() {
             if (STATE.pendingRouteId) {
                 const url = `https://kaohsiung-live-bus.pages.dev/?page=tracker&route=${STATE.pendingRouteId}${STATE.pendingStationId ? '&station='+STATE.pendingStationId : ''}`;
+                
                 const container = document.getElementById('iframe-container');
                 container.innerHTML = ''; 
                 const iframe = document.createElement('iframe');
@@ -356,32 +357,54 @@
 
         function updateUserLocation(pos) {
             const { latitude, longitude, accuracy } = pos.coords;
+            STATE.userPos = [latitude, longitude]; 
+            
             if (STATE.userAccuracy) STATE.map.removeLayer(STATE.userAccuracy);
             if (STATE.userMarker) STATE.map.removeLayer(STATE.userMarker);
             STATE.userAccuracy = L.circle([latitude, longitude], { radius: accuracy, color: '#3b82f6', fillOpacity: 0.1 }).addTo(STATE.map);
             STATE.userMarker = L.marker([latitude, longitude], { icon: L.divIcon({ className: 'bg-blue-600 border-2 border-white rounded-full shadow-lg', iconSize: [14, 14] }) }).addTo(STATE.map);
         }
 
-        // 自動定位邏輯：開啟高精度，延長等待時間，但若失敗不跳提示
-        function initialLocateUser() {
+        function startWatcher() {
+            if (STATE.geoWatcherId) return; 
             if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    (pos) => { 
-                        updateUserLocation(pos); 
-                        STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17, { animate: true, duration: 0.8 }); 
-                    }, 
-                    (err) => { /* Silent Fail */ }, 
-                    { timeout: 10000, enableHighAccuracy: true } // 增加超時與精度
+                STATE.geoWatcherId = navigator.geolocation.watchPosition(
+                    (pos) => { updateUserLocation(pos); }, 
+                    (err) => { }, 
+                    { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
                 );
             }
         }
 
+        function initialLocateUser() {
+            startWatcher();
+            navigator.geolocation.getCurrentPosition(
+                (pos) => { 
+                    updateUserLocation(pos); 
+                    STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17, { animate: true, duration: 0.8 }); 
+                }, 
+                (err) => {}, 
+                { enableHighAccuracy: true, timeout: 10000 }
+            );
+        }
+
         function locateUser() {
             if (!navigator.geolocation) return showToast('不支援定位', 'error');
-            const locIcon = document.querySelector('#search-box button:last-child span');
-            if (STATE.geoWatcherId) { navigator.geolocation.clearWatch(STATE.geoWatcherId); STATE.geoWatcherId = null; locIcon.innerText = 'my_location'; showToast('停止持續定位'); return; }
-            showToast('定位中...'); locIcon.innerText = 'gps_fixed';
-            STATE.geoWatcherId = navigator.geolocation.watchPosition((pos) => { updateUserLocation(pos); if (!STATE.map.getBounds().contains([pos.coords.latitude, pos.coords.longitude])) STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17); }, () => { locIcon.innerText = 'my_location'; STATE.geoWatcherId = null; }, { enableHighAccuracy: true });
+            startWatcher();
+            if (STATE.userPos) {
+                STATE.map.flyTo(STATE.userPos, 17, { animate: true, duration: 0.8 });
+                showToast('已定位至目前位置');
+            } else {
+                showToast('定位中...');
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => { 
+                        updateUserLocation(pos); 
+                        STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17, { animate: true, duration: 0.8 }); 
+                    },
+                    () => { showToast('無法取得位置', 'error'); },
+                    { enableHighAccuracy: true, timeout: 10000 }
+                );
+            }
         }
 
         async function fetchGraphQL(query, variables) {
@@ -407,7 +430,6 @@
         }
 
         async function initMap() {
-            // 更新：預設座標設為高雄車站
             STATE.map = L.map('map', { 
                 zoomControl: false, maxZoom: 22, preferCanvas: true, wheelDebounceTime: 100 
             }).setView([22.631442, 120.301890], 17);
@@ -490,7 +512,8 @@
         }
 
         function handleMarkerClick(marker, type, data) {
-            STATE.map.flyTo(marker.getLatLng(), 18, { animate: true, duration: 0.8 });
+            // [修正] 使用目前的 zoom level，不強制縮放
+            STATE.map.flyTo(marker.getLatLng(), STATE.map.getZoom(), { animate: true, duration: 0.8 });
             openSidebar(type, data);
         }
 
@@ -582,7 +605,6 @@
             const time = new Date().toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit'});
             const getNumColor = (n) => n > 3 ? 'text-slate-800' : (n > 0 ? 'text-orange-600' : 'text-gray-300');
 
-            // 修正：移除 -bottom-3，改用 right-0 bottom-0
             container.innerHTML = `
                 <div class="space-y-4">
                     <div class="grid grid-cols-2 gap-3">
@@ -617,20 +639,50 @@
         async function getBikeRealtime(id) { try { return (await (await fetch(CONFIG.UBIKE_REALTIME, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ station_no: [id] }) })).json()).retVal?.data?.[0]; } catch { return null; } }
 
         const searchInput = document.getElementById('search-input'), resultsBox = document.getElementById('search-results'), searchClear = document.getElementById('search-clear');
-        searchInput.addEventListener('input', (e) => { 
-            const val = e.target.value.trim().toLowerCase();
+        
+        // [修改] 觸發邏輯：input (輸入時), focus (點擊/選取時), click (再次點擊時)
+        const handleSearchTrigger = () => {
+            const val = searchInput.value.trim().toLowerCase();
             searchClear.classList.toggle('hidden', val.length === 0);
+            // 只要有文字就顯示，不管是不是變更
             if(val) doSearch(val); else resultsBox.classList.remove('show');
-        });
+        };
+
+        searchInput.addEventListener('input', handleSearchTrigger);
+        searchInput.addEventListener('focus', handleSearchTrigger);
+        searchInput.addEventListener('click', handleSearchTrigger);
+
         searchClear.addEventListener('click', () => { searchInput.value = ''; searchClear.classList.add('hidden'); resultsBox.classList.remove('show'); });
         
+        function calculateScore(text, key) {
+            if (!text) return 0;
+            const t = text.toString().toLowerCase();
+            const k = key.toLowerCase();
+            if (t === k) return 1000; 
+            if (t.startsWith(k)) return 500 - t.length; 
+            const idx = t.indexOf(k);
+            if (idx > -1) return 100 - idx; 
+            return 0; 
+        }
+
         function doSearch(key) {
             resultsBox.innerHTML = ''; const all = [];
             [...STATE.dataBus, ...STATE.dataBike].forEach(s => {
-                const name = s.id ? s.name : s.name_tw; const sub = s.id ? s.id.toString() : s.address_tw;
-                if (name.includes(key) || sub.includes(key)) all.push({ data: s, type: s.id ? 'bus' : 'bike' });
+                const name = s.id ? s.name : s.name_tw; 
+                const sub = s.id ? s.id.toString() : s.address_tw;
+                
+                const nameScore = calculateScore(name, key);
+                const subScore = calculateScore(sub, key);
+                const maxScore = Math.max(nameScore, subScore);
+
+                if (maxScore > 0) {
+                    all.push({ data: s, type: s.id ? 'bus' : 'bike', score: maxScore });
+                }
             });
+
+            all.sort((a, b) => b.score - a.score);
             const res = all.slice(0, 15);
+
             if(!res.length) resultsBox.innerHTML = '<div class="p-4 text-center text-slate-400 text-sm">無結果</div>';
             else res.forEach(r => {
                 const div = document.createElement('div');
