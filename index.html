@@ -1,3 +1,5 @@
+--- START OF FILE index.html ---
+
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -251,13 +253,18 @@
             map: null, busCluster: null, bikeCluster: null,
             dataBus: [], dataBike: [], markersMap: { bus: {}, bike: {} },
             currentContext: null, pendingRouteId: null,
-            autoRefreshTimer: null // ADDED: for auto-refresh
+            autoRefreshTimer: null,
+            userMarker: null, userAccuracy: null, // 確保這些屬性存在
+            geoWatcherId: null // ADDED: for continuous geolocation
         };
 
         window.onload = async () => {
             initMap();
             initSidebarGestures();
             await Promise.all([loadBusData(), loadBikeData()]);
+            
+            initialLocateUser(); // ADDED: Initial one-time location check
+
             const loading = document.getElementById('loading-screen');
             loading.style.opacity = '0';
             loading.classList.remove('visible');
@@ -334,43 +341,74 @@
                 STATE.autoRefreshTimer = null;
             }
         }
+        
+        // --- 定位功能修改 ---
 
-        // --- 定位 ---
-        function locateUser() {
-            if (!navigator.geolocation) return showToast('瀏覽器不支援定位', 'error');
-            showToast('定位中...');
-            navigator.geolocation.getCurrentPosition((pos) => {
-                const { latitude, longitude } = pos.coords;
-                STATE.map.flyTo([latitude, longitude], 16);
-                if (STATE.userMarker) STATE.map.removeLayer(STATE.userMarker);
-                if (STATE.userAccuracy) STATE.map.removeLayer(STATE.userAccuracy);
-                STATE.userAccuracy = L.circle([latitude, longitude], { radius: pos.coords.accuracy, color: '#3b82f6', fillOpacity: 0.1 }).addTo(STATE.map);
-                STATE.userMarker = L.marker([latitude, longitude], {
-                    icon: L.divIcon({ className: 'bg-blue-600 border-2 border-white rounded-full shadow-lg pulse-ring', iconSize: [14, 14] })
-                }).addTo(STATE.map);
-                showToast('定位成功', 'success');
-            }, (err) => showToast('無法定位', 'error'), { timeout: 10000, enableHighAccuracy: true });
+        // 輔助函數：在地圖上更新使用者標記和準確度圈
+        function updateUserLocation(pos) {
+            const { latitude, longitude, accuracy } = pos.coords;
+            if (STATE.userAccuracy) STATE.map.removeLayer(STATE.userAccuracy);
+            if (STATE.userMarker) STATE.map.removeLayer(STATE.userMarker);
+            
+            STATE.userAccuracy = L.circle([latitude, longitude], { radius: accuracy, color: '#3b82f6', fillOpacity: 0.1 }).addTo(STATE.map);
+            STATE.userMarker = L.marker([latitude, longitude], {
+                icon: L.divIcon({ className: 'bg-blue-600 border-2 border-white rounded-full shadow-lg pulse-ring', iconSize: [14, 14] })
+            }).addTo(STATE.map);
         }
 
-        // --- 側邊欄重整 ---
-        async function refreshData(isAuto = false) { // isAuto 判斷是否為自動更新
-            if (!STATE.currentContext) return;
-            const btnIcon = document.querySelector('#refresh-btn span');
-            if (!isAuto) { // 手動更新才顯示動畫和Toast
-                btnIcon.classList.add('spin-anim');
+        // 載入時一次性定位 (失敗時不提示)
+        function initialLocateUser() {
+            if (!navigator.geolocation) return;
+            navigator.geolocation.getCurrentPosition((pos) => {
+                updateUserLocation(pos);
+                // 初始載入時設定地圖視角，但不執行 flyTo
+                // STATE.map.setView([pos.coords.latitude, pos.coords.longitude], 14); // 避免干擾初始地圖設定，可以註釋掉
+            }, (err) => {
+                // 靜默失敗，不顯示 toast
+                console.warn("Initial Geolocation failed:", err.message);
+            }, { timeout: 5000, enableHighAccuracy: true, maximumAge: 60000 });
+        }
+
+        // 按鈕點擊：啟動/停止持續定位
+        function locateUser() {
+            const locIcon = document.querySelector('#search-box button:last-child span');
+
+            if (!navigator.geolocation) return showToast('瀏覽器不支援定位', 'error');
+
+            // 1. 如果已經在持續定位，則停止
+            if (STATE.geoWatcherId) {
+                navigator.geolocation.clearWatch(STATE.geoWatcherId);
+                STATE.geoWatcherId = null;
+                locIcon.innerText = 'my_location';
+                showToast('已停止持續定位', 'info');
+                return;
             }
-            const { type, data } = STATE.currentContext;
-            const content = document.getElementById('sb-content');
-            if (type === 'bus') {
-                const arrivals = await getBusArrivals(data.id);
-                renderBusContent(arrivals, content);
-            } else {
-                const info = await getBikeRealtime(data.station_no);
-                renderBikeContent(info, content);
-            }
-            if (!isAuto) {
-                setTimeout(() => { btnIcon.classList.remove('spin-anim'); showToast('即時資料已更新', 'success'); }, 600);
-            }
+
+            // 2. 啟動持續定位
+            showToast('持續定位已啟動...', 'info');
+            locIcon.innerText = 'gps_fixed'; // 變更圖示
+
+            const successCallback = (pos) => {
+                updateUserLocation(pos);
+                
+                // 首次定位成功時，或用戶位置不在當前視窗時，執行 flyTo
+                if (!STATE.userMarker || !STATE.map.getBounds().contains([pos.coords.latitude, pos.coords.longitude])) {
+                     STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17);
+                }
+            };
+            
+            const errorCallback = (err) => {
+                showToast('持續定位失敗', 'error'); 
+                if (STATE.geoWatcherId) navigator.geolocation.clearWatch(STATE.geoWatcherId);
+                STATE.geoWatcherId = null;
+                locIcon.innerText = 'my_location';
+            };
+
+            STATE.geoWatcherId = navigator.geolocation.watchPosition(
+                successCallback, 
+                errorCallback, 
+                { timeout: 15000, enableHighAccuracy: true, maximumAge: 0 } // maximumAge: 0 強制更新位置
+            );
         }
 
         function initMap() {
