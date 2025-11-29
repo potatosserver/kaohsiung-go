@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -250,10 +251,12 @@
         const STATE = {
             map: null, busCluster: null, bikeCluster: null,
             dataBus: [], dataBike: [], markersMap: { bus: {}, bike: {} },
-            currentContext: null, pendingRouteId: null,
+            currentContext: null, 
+            pendingRouteId: null, 
+            pendingStationId: null, // <--- MODIFIED: 新增站點 ID 變數
             autoRefreshTimer: null,
             userMarker: null, userAccuracy: null,
-            geoWatcherId: null // 持續定位的 ID
+            geoWatcherId: null
         };
 
         window.onload = async () => {
@@ -294,15 +297,24 @@
         }
 
         // --- 彈窗與跳轉邏輯 ---
-        function confirmRedirect(routeId, routeName) {
+        // MODIFIED: 接收 stationId
+        function confirmRedirect(routeId, routeName, stationId) {
             STATE.pendingRouteId = routeId;
+            STATE.pendingStationId = stationId; // <-- MODIFIED: 儲存站點 ID
             document.getElementById('nav-route-name').innerText = routeName;
             document.getElementById('nav-modal').classList.remove('hidden');
             history.pushState({ modal: 'nav' }, null, '');
         }
 
         function doRedirect() {
-            if (STATE.pendingRouteId) window.location.href = `https://kaohsiung-live-bus.pages.dev/?page=tracker&route=${STATE.pendingRouteId}`;
+            // MODIFIED: 構建包含 route 和 station 的完整 URL
+            if (STATE.pendingRouteId && STATE.pendingStationId) {
+                window.location.href = `https://kaohsiung-live-bus.pages.dev/?page=tracker&route=${STATE.pendingRouteId}&station=${STATE.pendingStationId}`;
+                
+            } else if (STATE.pendingRouteId) {
+                // 如果沒有站點 ID，則退回到只傳送路線 ID
+                window.location.href = `https://kaohsiung-live-bus.pages.dev/?page=tracker&route=${STATE.pendingRouteId}`;
+            }
         }
 
         function cancelRedirect() { history.back(); }
@@ -316,21 +328,21 @@
             if (!modal.classList.contains('hidden')) {
                 modal.classList.add('hidden');
                 STATE.pendingRouteId = null;
+                STATE.pendingStationId = null; // 清除
             }
         });
 
         // --- 自動更新邏輯 ---
         function startAutoRefresh() {
-            stopAutoRefresh(); // 確保清除舊的計時器
+            stopAutoRefresh(); 
             if (!STATE.currentContext) return;
             STATE.autoRefreshTimer = setInterval(() => {
-                // 僅在側邊欄開啟時執行更新
                 if (document.getElementById('sidebar').classList.contains('active')) {
-                    refreshData(true); // 傳遞 true 表示是自動更新
+                    refreshData(true); 
                 } else {
-                    stopAutoRefresh(); // 如果關閉了，則停止計時器
+                    stopAutoRefresh(); 
                 }
-            }, 30000); // 30 秒
+            }, 30000); 
         }
 
         function stopAutoRefresh() {
@@ -348,9 +360,7 @@
             if (STATE.userAccuracy) STATE.map.removeLayer(STATE.userAccuracy);
             if (STATE.userMarker) STATE.map.removeLayer(STATE.userMarker);
             
-            // 準確度圈
             STATE.userAccuracy = L.circle([latitude, longitude], { radius: accuracy, color: '#3b82f6', fillOpacity: 0.1 }).addTo(STATE.map);
-            // 使用者標記 (藍點)
             STATE.userMarker = L.marker([latitude, longitude], {
                 icon: L.divIcon({ className: 'bg-blue-600 border-2 border-white rounded-full shadow-lg pulse-ring', iconSize: [14, 14] })
             }).addTo(STATE.map);
@@ -361,11 +371,9 @@
             if (!navigator.geolocation) return;
             navigator.geolocation.getCurrentPosition((pos) => {
                 updateUserLocation(pos);
-                // 初始定位成功後，將地圖視角飛到使用者位置 (zoom 17)
                 STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17, { animate: true, duration: 0.8 }); 
 
             }, (err) => {
-                // 靜默失敗，不顯示 toast
                 console.warn("Initial Geolocation failed:", err.message);
             }, { timeout: 5000, enableHighAccuracy: true, maximumAge: 60000 });
         }
@@ -376,7 +384,6 @@
 
             if (!navigator.geolocation) return showToast('瀏覽器不支援定位', 'error');
 
-            // 1. 如果已經在持續定位，則停止
             if (STATE.geoWatcherId) {
                 navigator.geolocation.clearWatch(STATE.geoWatcherId);
                 STATE.geoWatcherId = null;
@@ -385,14 +392,11 @@
                 return;
             }
 
-            // 2. 啟動持續定位
             showToast('持續定位已啟動...', 'info');
-            locIcon.innerText = 'gps_fixed'; // 變更圖示
+            locIcon.innerText = 'gps_fixed';
 
             const successCallback = (pos) => {
                 updateUserLocation(pos);
-                
-                // 確保使用者點擊定位鈕後，畫面會移動到他的位置 (zoom 17)
                 if (!STATE.map.getBounds().contains([pos.coords.latitude, pos.coords.longitude])) {
                      STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17);
                 }
@@ -408,12 +412,11 @@
             STATE.geoWatcherId = navigator.geolocation.watchPosition(
                 successCallback, 
                 errorCallback, 
-                { timeout: 15000, enableHighAccuracy: true, maximumAge: 0 } // maximumAge: 0 強制更新位置
+                { timeout: 15000, enableHighAccuracy: true, maximumAge: 0 } 
             );
         }
 
         function initMap() {
-            // 初始地圖視角縮放級別改為 17
             STATE.map = L.map('map', { zoomControl: false }).setView([22.6273, 120.3014], 17);
             L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(STATE.map);
             L.control.zoom({ position: 'bottomright' }).addTo(STATE.map);
@@ -617,6 +620,9 @@
         function renderBusContent(data, container) {
             if (!data) { container.innerHTML = '<div class="p-4 bg-red-50 text-red-600 rounded-lg text-center text-sm">連線失敗 (CORS) 或 iBus 查詢錯誤</div>'; return; }
             if (data.length === 0) { container.innerHTML = '<div class="p-8 text-center text-slate-400"><span class="material-icons-outlined text-4xl mb-2">bus_alert</span><p>無營運路線</p></div>'; return; }
+            
+            const stationId = STATE.currentContext.data.id; // <-- MODIFIED: 取得當前站點 ID
+
             let html = '<div class="space-y-3">';
             data.forEach(r => {
                 let timeHtml = `<span class="text-gray-400 font-bold text-sm">未發車</span>`;
@@ -629,9 +635,9 @@
                     else timeHtml = `<span class="text-blue-600 font-bold text-lg">${min} <span class="text-xs font-normal text-slate-500">分</span></span>`;
                 } else if (r.comeTime) timeHtml = `<span class="text-slate-600 font-medium text-sm">${r.comeTime}</span>`;
                 
-                // MODIFIED: Added flex-nowrap, truncate, min-w-0, flex-shrink-0, whitespace-nowrap for better layout
+                // MODIFIED: 將 stationId 傳入 confirmRedirect
                 html += `
-                    <div onclick="confirmRedirect('${r.id}', '${r.name}')" class="p-3 rounded-2xl border ${statusClass} flex items-center justify-between transition bg-white active:scale-95 cursor-pointer">
+                    <div onclick="confirmRedirect('${r.id}', '${r.name}', '${stationId}')" class="p-3 rounded-2xl border ${statusClass} flex items-center justify-between transition bg-white active:scale-95 cursor-pointer">
                         <div class="flex-1 min-w-0 mr-3">
                             <div class="flex items-center gap-2 flex-nowrap">
                                 <span class="text-lg font-bold text-slate-800 truncate min-w-0">${r.name}</span>
@@ -721,18 +727,17 @@
             searchInput.focus();
         });
 
-        // ⭐ NEW: 計算搜尋分數的函數
         function calculateScore(item, key) {
             const normalizedKey = key.toLowerCase();
-            const type = item.id ? 'bus' : 'bike'; // 用 id 判斷是公車還是 YouBike
+            const type = item.id ? 'bus' : 'bike'; 
             
             let name, sub;
             if (type === 'bus') {
                 name = item.name;
-                sub = item.id.toString(); // 公車 ID 當作次要匹配項
+                sub = item.id.toString(); 
             } else {
                 name = item.name_tw;
-                sub = item.address_tw; // YouBike 地址當作次要匹配項
+                sub = item.address_tw; 
             }
             
             const normalizedName = name.toLowerCase();
@@ -746,12 +751,10 @@
             } 
             // 2. 名稱開頭匹配 (800+)
             else if (normalizedName.startsWith(normalizedKey)) {
-                // 越短的名稱開頭匹配得分越高 (例如 "R1" vs "R10")
                 score = 800 + 100 - normalizedName.length; 
             }
             // 3. 名稱包含 (500+)
             else if (normalizedName.includes(normalizedKey)) {
-                // 越早出現得分越高
                 score = 500 + 50 - normalizedName.indexOf(normalizedKey); 
             }
             // 4. 次要欄位 (ID/地址) 包含 (200+)
@@ -763,7 +766,6 @@
         }
 
 
-        // ⭐ MODIFIED: 根據匹配度排序的 doSearch 函數
         function doSearch(key) {
             resultsBox.innerHTML = '';
             
@@ -790,7 +792,7 @@
             allResults.sort((a, b) => b.score - a.score);
             
             // 3. 限制數量並渲染
-            const finalResults = allResults.slice(0, 15); // 顯示前 15 個結果
+            const finalResults = allResults.slice(0, 15); 
             
             if(finalResults.length === 0) { 
                 resultsBox.innerHTML = '<div class="p-4 text-center text-slate-400 text-sm">找不到相關站點</div>'; 
