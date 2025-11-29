@@ -1,5 +1,3 @@
---- START OF FILE index.html ---
-
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -11,7 +9,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>高雄交通智慧地圖</title>
     
-    <!-- Favicon Settings (新增部分) -->
+    <!-- Favicon Settings -->
     <link rel="shortcut icon" href="/icons/icon.ico" type="image/x-icon">
     <link rel="icon" href="/icons/icon.ico" type="image/x-icon">
     
@@ -159,7 +157,7 @@
     <div id="loading-screen" class="visible">
         <div class="loader mb-4"></div>
         <h2 class="text-xl font-bold text-slate-800">高雄交通智慧地圖</h2>
-        <p id="loading-text" class="text-sm text-slate-500 mt-2">系統初始化中...</p>
+        <p id="loading-text" class="text-sm text-slate-500 mt-2">系統初始化中（1/3）</p>
     </div>
 
     <!-- Toast 通知 -->
@@ -169,8 +167,6 @@
             <span id="toast-text">提示訊息</span>
         </div>
     </div>
-
-    <!-- 跳轉確認彈窗 (點擊背景可關閉) -->
     <div id="nav-modal" class="fixed inset-0 z-[5000] flex items-center justify-center bg-black/40 backdrop-blur-sm hidden p-4" onclick="handleModalClick(event)">
         <div class="bg-white rounded-3xl shadow-2xl p-6 w-full max-w-sm transform transition-all scale-100" onclick="event.stopPropagation()">
             <div class="flex items-center gap-3 mb-4">
@@ -254,7 +250,7 @@
             dataBus: [], dataBike: [], markersMap: { bus: {}, bike: {} },
             currentContext: null, 
             pendingRouteId: null, 
-            pendingStationId: null, // MODIFIED: 新增站點 ID 變數
+            pendingStationId: null,
             autoRefreshTimer: null,
             userMarker: null, userAccuracy: null,
             geoWatcherId: null
@@ -263,16 +259,20 @@
         window.onload = async () => {
             initMap();
             initSidebarGestures();
-            await Promise.all([loadBusData(), loadBikeData()]);
             
-            initialLocateUser(); // 初始一次性定位 (會移動地圖)
+            // 階段 1: 載入公車
+            await loadBusData();
+            
+            // 階段 2: 載入 YouBike
+            await loadBikeData();
+            
+            initialLocateUser(); 
 
             const loading = document.getElementById('loading-screen');
             loading.style.opacity = '0';
             loading.classList.remove('visible');
             setTimeout(() => loading.remove(), 500);
             
-            // Register PWA Service Worker (service-worker.js)
             if ('serviceWorker' in navigator) {
                 navigator.serviceWorker.register('./service-worker.js')
                     .then(reg => console.log('Service Worker Registered!', reg))
@@ -298,20 +298,17 @@
         }
 
         // --- 彈窗與跳轉邏輯 ---
-        // MODIFIED: 接收 stationId
         function confirmRedirect(routeId, routeName, stationId) {
             STATE.pendingRouteId = routeId;
-            STATE.pendingStationId = stationId; // MODIFIED: 儲存站點 ID
+            STATE.pendingStationId = stationId;
             document.getElementById('nav-route-name').innerText = routeName;
             document.getElementById('nav-modal').classList.remove('hidden');
             history.pushState({ modal: 'nav' }, null, '');
         }
 
         function doRedirect() {
-            // MODIFIED: 構建包含 route 和 station 的完整 URL
             if (STATE.pendingRouteId && STATE.pendingStationId) {
                 window.location.href = `https://kaohsiung-live-bus.pages.dev/?page=tracker&route=${STATE.pendingRouteId}&station=${STATE.pendingStationId}`;
-                
             } else if (STATE.pendingRouteId) {
                 window.location.href = `https://kaohsiung-live-bus.pages.dev/?page=tracker&route=${STATE.pendingRouteId}`;
             }
@@ -324,7 +321,7 @@
             if (!modal.classList.contains('hidden')) {
                 modal.classList.add('hidden');
                 STATE.pendingRouteId = null;
-                STATE.pendingStationId = null; // 清除
+                STATE.pendingStationId = null;
             }
         });
 
@@ -349,8 +346,6 @@
         }
         
         // --- 定位功能 ---
-
-        // 輔助函數：在地圖上更新使用者標記和準確度圈
         function updateUserLocation(pos) {
             const { latitude, longitude, accuracy } = pos.coords;
             if (STATE.userAccuracy) STATE.map.removeLayer(STATE.userAccuracy);
@@ -362,19 +357,16 @@
             }).addTo(STATE.map);
         }
 
-        // 載入時一次性定位 (失敗時不提示，成功時移動地圖)
         function initialLocateUser() {
             if (!navigator.geolocation) return;
             navigator.geolocation.getCurrentPosition((pos) => {
                 updateUserLocation(pos);
                 STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17, { animate: true, duration: 0.8 }); 
-
             }, (err) => {
                 console.warn("Initial Geolocation failed:", err.message);
             }, { timeout: 5000, enableHighAccuracy: true, maximumAge: 60000 });
         }
 
-        // 按鈕點擊：啟動/停止持續定位
         function locateUser() {
             const locIcon = document.querySelector('#search-box button:last-child span');
 
@@ -412,8 +404,6 @@
             );
         }
 
-        // --- 側邊欄重整 (Refresh Button) ---
-        // MODIFIED: 確保正確使用公車 data.id 或 YouBike data.station_no
         async function refreshData(isAuto = false) { 
             if (!STATE.currentContext) return;
             
@@ -427,14 +417,14 @@
             let refreshSuccess = false; 
 
             if (type === 'bus') {
-                const busStationId = data.id; // 公車使用 data.id
+                const busStationId = data.id; 
                 if(busStationId) {
                     const arrivals = await getBusArrivals(busStationId);
                     renderBusContent(arrivals, content);
                     if (arrivals) refreshSuccess = true;
                 }
             } else if (type === 'bike') {
-                const bikeStationNo = data.station_no; // YouBike 使用 data.station_no
+                const bikeStationNo = data.station_no; 
                 if(bikeStationNo) {
                     const info = await getBikeRealtime(bikeStationNo);
                     renderBikeContent(info, content);
@@ -448,15 +438,11 @@
                     if (refreshSuccess) {
                         showToast('即時資料已更新', 'success'); 
                     } else {
-                        // 如果更新失敗，讓 renderContent 內的錯誤訊息顯示在側邊欄
-                        // 這裡可以只提示 Toast 
                         showToast('資料更新失敗', 'error'); 
                     }
                 }, 600);
             }
         }
-        // --- 側邊欄重整 END ---
-
 
         function initMap() {
             STATE.map = L.map('map', { zoomControl: false }).setView([22.6273, 120.3014], 17);
@@ -471,7 +457,6 @@
             STATE.map.addLayer(STATE.bikeCluster);
         }
 
-        // --- GraphQL 助手函數 ---
         async function fetchGraphQL(query) {
             try {
                 const response = await fetch(CONFIG.IBUS_API, {
@@ -494,16 +479,12 @@
             }
         }
 
-        // --- 公車站點抓取：God Mode ---
         async function fetchBusStationsGodMode() {
             const uniqueStations = new Map();
             try {
-                updateLoading("正在取得路線列表...");
                 const listQuery = `query { routes(lang: "zh") { edges { node { id name } } } }`;
                 const listData = await fetchGraphQL(listQuery);
                 const allRoutes = listData.data.routes.edges;
-                
-                updateLoading(`取得 ${allRoutes.length} 條路線。正在組裝超級查詢...`);
 
                 const bigQueryBody = allRoutes.map(edge => {
                     const rid = edge.node.id;
@@ -515,16 +496,12 @@
                 }).join('\n');
 
                 const godQuery = `query GOD_MODE_FETCH { ${bigQueryBody} }`;
-
-                updateLoading("🚀 發送超級請求中 (等待伺服器回應)...");
                 const result = await fetchGraphQL(godQuery);
 
                 if (result.errors) {
                     console.error(result.errors);
                     throw new Error("伺服器回傳錯誤");
                 }
-
-                updateLoading("✅ 收到回應！正在解析站點資料...");
 
                 if (result.data) {
                     Object.values(result.data).forEach(routeData => {
@@ -540,7 +517,6 @@
                         }
                     });
                 }
-                updateLoading(`🎉 成功收集 ${uniqueStations.size} 個站點。`);
                 return Array.from(uniqueStations.values());
 
             } catch (e) {
@@ -552,7 +528,7 @@
         }
 
         async function loadBusData() {
-            updateLoading('載入公車站點 (即時抓取)...');
+            updateLoading('正在載入公車站點 (2/3)');
             try {
                 STATE.dataBus = await fetchBusStationsGodMode(); 
                 const markers = STATE.dataBus.map(s => {
@@ -567,7 +543,7 @@
         }
 
         async function loadBikeData() {
-            updateLoading('載入 YouBike...');
+            updateLoading('正在載入 YouBike 站點 (2/3)');
             try {
                 const res = await fetch(CONFIG.UBIKE_LIST);
                 const data = await res.json();
@@ -599,7 +575,7 @@
             else { 
                 sb.classList.remove('active'); 
                 document.body.classList.remove('sidebar-open');
-                stopAutoRefresh(); // ADDED: Stop auto-refresh on close
+                stopAutoRefresh(); 
             }
         }
 
@@ -656,7 +632,7 @@
                 const info = await getBikeRealtime(data.station_no);
                 renderBikeContent(info, content);
             }
-            startAutoRefresh(); // ADDED: Start auto-refresh
+            startAutoRefresh(); 
         }
 
         function renderBusContent(data, container) {
@@ -677,7 +653,6 @@
                     else timeHtml = `<span class="text-blue-600 font-bold text-lg">${min} <span class="text-xs font-normal text-slate-500">分</span></span>`;
                 } else if (r.comeTime) timeHtml = `<span class="text-slate-600 font-medium text-sm">${r.comeTime}</span>`;
                 
-                // MODIFIED: 將 stationId 傳入 confirmRedirect
                 html += `
                     <div onclick="confirmRedirect('${r.id}', '${r.name}', '${stationId}')" class="p-3 rounded-2xl border ${statusClass} flex items-center justify-between transition bg-white active:scale-95 cursor-pointer">
                         <div class="flex-1 min-w-0 mr-3">
@@ -729,7 +704,7 @@
                 const r1 = await fetch(CONFIG.IBUS_API, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ query: qRoute, variables: { ids: [parseInt(stationId, 10)] } }) });
                 const j1 = await r1.json();
                 const routeEdges = j1?.data?.stations?.edges?.[0]?.node?.routes?.edges;
-                if (!routeEdges) return null; // 如果沒有路線資訊，返回 null
+                if (!routeEdges) return null; 
                 const targets = routeEdges.map(e => ({ xno: parseInt(e.node.id, 10), goBack: parseInt(e.goBack, 10), stationId: parseInt(stationId, 10) }));
                 const r2 = await fetch(CONFIG.IBUS_API, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ query: qTime, variables: { t: targets } }) });
                 const j2 = await r2.json();
@@ -802,7 +777,6 @@
             
             return score;
         }
-
 
         function doSearch(key) {
             resultsBox.innerHTML = '';
