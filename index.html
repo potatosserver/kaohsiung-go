@@ -28,6 +28,11 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
+
+    <!-- MapLibre GL & Leaflet Plugin (用於向量圖磚) -->
+    <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+    <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+    <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.0.21/leaflet-maplibre-gl.js"></script>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -257,7 +262,8 @@
         };
 
         window.onload = async () => {
-            initMap();
+            // 注意：initMap 現在是非同步的，因為要載入向量樣式檔
+            await initMap();
             initSidebarGestures();
             
             // 階段 1: 載入公車
@@ -444,9 +450,46 @@
             }
         }
 
-        function initMap() {
+        // --- 處理樣式檔語言設定 (優先顯示繁體中文) ---
+        function preprocessStyle(style) {
+            if (!style || !style.layers) return style;
+            style.layers.forEach(layer => {
+                if (layer.layout && layer.layout['text-field']) {
+                    layer.layout['text-field'] = [
+                        'coalesce',
+                        ['get', 'name:zh-Hant'], // 優先
+                        ['get', 'name:zh'],
+                        ['get', 'name:en'],
+                        ['get', 'name']
+                    ];
+                }
+            });
+            return style;
+        }
+
+        async function initMap() {
             STATE.map = L.map('map', { zoomControl: false }).setView([22.6273, 120.3014], 17);
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(STATE.map);
+            
+            // 替換：改用 MapLibre GL 載入 Shortbread 向量圖磚
+            try {
+                const response = await fetch('https://potatosserver.github.io/map/shortbread.json');
+                const styleJson = await response.json();
+                const processedStyle = preprocessStyle(styleJson);
+
+                L.maplibreGL({
+                    style: processedStyle,
+                    maplibreGLOptions: {
+                        crossOrigin: 'anonymous'
+                    }
+                }).addTo(STATE.map);
+            } catch (e) {
+                console.error("Vector map loading failed, falling back to raster tiles.", e);
+                // 降級備案：如果向量圖載入失敗，使用原本的點陣圖
+                L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { 
+                    maxZoom: 19, attribution: '&copy; OpenStreetMap' 
+                }).addTo(STATE.map);
+            }
+
             L.control.zoom({ position: 'bottomright' }).addTo(STATE.map);
             STATE.map.on('click', () => toggleSidebar(false));
 
