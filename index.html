@@ -474,44 +474,60 @@
         }
 
         async function initMap() {
-            // [修正] 初始化時明確指定 maxZoom，避免 markerCluster 報錯
+            // 1. 初始化地圖
             STATE.map = L.map('map', { 
                 zoomControl: false,
-                maxZoom: 22 
+                maxZoom: 22,
+                preferCanvas: true // 讓 Leaflet 效能好一點
             }).setView([22.6273, 120.3014], 17);
 
-            // --- 向量地圖整合 (Shortbread) ---
+            // 2. 載入向量樣式
             try {
                 const response = await fetch(CONFIG.SHORTBREAD_STYLE);
                 let style = await response.json();
-                style = preprocessStyle(style); // 處理字型語系
+                style = preprocessStyle(style);
 
                 L.maplibreGL({
                     style: style,
                     maplibreGLOptions: {
-                        crossOrigin: 'anonymous'
+                        crossOrigin: 'anonymous',
+                        fadeDuration: 0, // 關閉淡入動畫，讓載入感更直接
+                        // [關鍵] 告訴 MapLibre 不要下載字型，直接用系統的，
+                        // 這能省去大量的運算時間，解決「地圖載好但字出不來」的卡頓感。
+                        localIdeographFontFamily: "'Noto Sans TC', 'Microsoft JhengHei', 'PingFang TC', sans-serif"
                     },
+                    padding: 0.1, // 減少視野外渲染範圍
                     attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                 }).addTo(STATE.map);
 
                 console.log('Shortbread Vector Style Loaded');
             } catch (error) {
-                console.error("Failed to load vector style, falling back or showing error:", error);
-                // 這裡可以選擇加入一個基本的備用圖層，或是單純顯示錯誤
-                showToast("地圖樣式載入失敗", "error");
+                console.error("Vector style error:", error);
+                showToast("地圖載入異常", "error");
             }
-            // --------------------------------
 
             L.control.zoom({ position: 'bottomright' }).addTo(STATE.map);
             STATE.map.on('click', () => toggleSidebar(false));
 
-            STATE.busCluster = L.markerClusterGroup({ disableClusteringAtZoom: 17, showCoverageOnHover: false, maxClusterRadius: 60, iconCreateFunction: (c) => L.divIcon({ html: `<div>${c.getChildCount()}</div>`, className: 'marker-cluster marker-cluster-bus', iconSize: [40, 40] }) });
-            STATE.bikeCluster = L.markerClusterGroup({ disableClusteringAtZoom: 17, showCoverageOnHover: false, maxClusterRadius: 60, iconCreateFunction: (c) => L.divIcon({ html: `<div>${c.getChildCount()}</div>`, className: 'marker-cluster marker-cluster-ubike', iconSize: [40, 40] }) });
+            // ... (後面的聚合設定保持不變) ...
+            const clusterOptions = (className) => ({
+                disableClusteringAtZoom: 17,
+                showCoverageOnHover: false,
+                maxClusterRadius: 60,
+                // 因為你說站點載入很快，這裡可以使用預設設定，不一定要 chunkedLoading
+                iconCreateFunction: (c) => L.divIcon({ 
+                    html: `<div>${c.getChildCount()}</div>`, 
+                    className: `marker-cluster ${className}`, 
+                    iconSize: [40, 40] 
+                })
+            });
+
+            STATE.busCluster = L.markerClusterGroup(clusterOptions('marker-cluster-bus'));
+            STATE.bikeCluster = L.markerClusterGroup(clusterOptions('marker-cluster-ubike'));
 
             STATE.map.addLayer(STATE.busCluster);
             STATE.map.addLayer(STATE.bikeCluster);
         }
-
         async function fetchGraphQL(query) {
             try {
                 const response = await fetch(CONFIG.IBUS_API, {
