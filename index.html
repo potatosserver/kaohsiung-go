@@ -250,7 +250,8 @@
         const STATE = {
             map: null, busCluster: null, bikeCluster: null,
             dataBus: [], dataBike: [], markersMap: { bus: {}, bike: {} },
-            currentContext: null, pendingRouteId: null
+            currentContext: null, pendingRouteId: null,
+            autoRefreshTimer: null // ADDED: for auto-refresh
         };
 
         window.onload = async () => {
@@ -313,6 +314,27 @@
             }
         });
 
+        // --- 自動更新邏輯 (NEW) ---
+        function startAutoRefresh() {
+            stopAutoRefresh(); // 確保清除舊的計時器
+            if (!STATE.currentContext) return;
+            STATE.autoRefreshTimer = setInterval(() => {
+                // 僅在側邊欄開啟時執行更新
+                if (document.getElementById('sidebar').classList.contains('active')) {
+                    refreshData(true); // 傳遞 true 表示是自動更新
+                } else {
+                    stopAutoRefresh(); // 如果關閉了，則停止計時器
+                }
+            }, 30000); // 30 秒
+        }
+
+        function stopAutoRefresh() {
+            if (STATE.autoRefreshTimer) {
+                clearInterval(STATE.autoRefreshTimer);
+                STATE.autoRefreshTimer = null;
+            }
+        }
+
         // --- 定位 ---
         function locateUser() {
             if (!navigator.geolocation) return showToast('瀏覽器不支援定位', 'error');
@@ -331,10 +353,12 @@
         }
 
         // --- 側邊欄重整 ---
-        async function refreshData() {
+        async function refreshData(isAuto = false) { // isAuto 判斷是否為自動更新
             if (!STATE.currentContext) return;
             const btnIcon = document.querySelector('#refresh-btn span');
-            btnIcon.classList.add('spin-anim');
+            if (!isAuto) { // 手動更新才顯示動畫和Toast
+                btnIcon.classList.add('spin-anim');
+            }
             const { type, data } = STATE.currentContext;
             const content = document.getElementById('sb-content');
             if (type === 'bus') {
@@ -344,7 +368,9 @@
                 const info = await getBikeRealtime(data.station_no);
                 renderBikeContent(info, content);
             }
-            setTimeout(() => { btnIcon.classList.remove('spin-anim'); showToast('即時資料已更新', 'success'); }, 600);
+            if (!isAuto) {
+                setTimeout(() => { btnIcon.classList.remove('spin-anim'); showToast('即時資料已更新', 'success'); }, 600);
+            }
         }
 
         function initMap() {
@@ -481,8 +507,15 @@
         function toggleSidebar(show) {
             const sb = document.getElementById('sidebar');
             sb.style.transform = '';
-            if (show) { sb.classList.add('active'); document.body.classList.add('sidebar-open'); }
-            else { sb.classList.remove('active'); document.body.classList.remove('sidebar-open'); }
+            if (show) { 
+                sb.classList.add('active'); 
+                document.body.classList.add('sidebar-open'); 
+            }
+            else { 
+                sb.classList.remove('active'); 
+                document.body.classList.remove('sidebar-open');
+                stopAutoRefresh(); // ADDED: Stop auto-refresh on close
+            }
         }
 
         function initSidebarGestures() {
@@ -538,6 +571,7 @@
                 const info = await getBikeRealtime(data.station_no);
                 renderBikeContent(info, content);
             }
+            startAutoRefresh(); // ADDED: Start auto-refresh
         }
 
         function renderBusContent(data, container) {
@@ -555,12 +589,13 @@
                     else timeHtml = `<span class="text-blue-600 font-bold text-lg">${min} <span class="text-xs font-normal text-slate-500">分</span></span>`;
                 } else if (r.comeTime) timeHtml = `<span class="text-slate-600 font-medium text-sm">${r.comeTime}</span>`;
                 
+                // MODIFIED: Added flex-nowrap, truncate, min-w-0, flex-shrink-0, whitespace-nowrap for better layout
                 html += `
                     <div onclick="confirmRedirect('${r.id}', '${r.name}')" class="p-3 rounded-2xl border ${statusClass} flex items-center justify-between transition bg-white active:scale-95 cursor-pointer">
                         <div class="flex-1 min-w-0 mr-3">
-                            <div class="flex items-center gap-2">
-                                <span class="text-lg font-bold text-slate-800">${r.name}</span>
-                                <span class="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full">${r.dir}</span>
+                            <div class="flex items-center gap-2 flex-nowrap">
+                                <span class="text-lg font-bold text-slate-800 truncate min-w-0">${r.name}</span>
+                                <span class="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full flex-shrink-0 whitespace-nowrap">${r.dir}</span>
                             </div>
                         </div>
                         <div class="text-right min-w-[80px]">${timeHtml}</div>
