@@ -871,18 +871,36 @@
             const sub = type === 'bus' ? `ID: ${data.id}` : data.address_tw;
             const icon = type === 'bus' ? 'directions_bus' : 'pedal_bike';
             const color = type === 'bus' ? 'bg-blue-100 text-blue-600' : 'bg-amber-100 text-amber-600';
+            
             div.className = 'p-3 flex items-center hover:bg-slate-50 cursor-pointer border-b border-gray-50 last:border-0 transition';
             div.innerHTML = `<div class="w-10 h-10 rounded-full ${color} flex items-center justify-center mr-3 shrink-0"><span class="material-icons-outlined text-lg">${icon}</span></div><div class="min-w-0"><div class="font-bold text-slate-700 text-sm truncate">${name}</div><div class="text-xs text-slate-400 truncate">${sub}</div></div>`;
+            
+            // --- 修改這裡 ---
             div.onclick = () => {
                 resultsBox.classList.remove('show');
                 searchInput.value = name;
                 toggleClearBtn();
+                
                 const id = type === 'bus' ? data.id : data.station_no;
                 const markerMap = type === 'bus' ? STATE.markersMap.bus : STATE.markersMap.bike;
                 const cluster = type === 'bus' ? STATE.busCluster : STATE.bikeCluster;
-                STATE.map.flyTo([type === 'bus' ? data.lat : data.lat, type === 'bus' ? data.lon : data.lng], 18, { animate: true, duration: 0.8 });
-                if (markerMap[id]) cluster.zoomToShowLayer(markerMap[id], () => openSidebar(type, data));
+                const lat = type === 'bus' ? data.lat : data.lat;
+                const lng = type === 'bus' ? data.lon : data.lng;
+
+                // [修正] 優先使用 cluster 的方法來移動，避免與 flyTo 衝突導致向量地圖卡住
+                if (markerMap[id]) {
+                    // 如果標記存在，讓聚合套件負責縮放並打開側邊欄
+                    cluster.zoomToShowLayer(markerMap[id], () => {
+                        openSidebar(type, data);
+                    });
+                } else {
+                    // 萬一找不到標記(極少見)，才使用普通的 flyTo
+                    STATE.map.flyTo([lat, lng], 18, { animate: true, duration: 0.8 });
+                    openSidebar(type, data);
+                }
             };
+            // ----------------
+            
             resultsBox.appendChild(div);
         }
 
