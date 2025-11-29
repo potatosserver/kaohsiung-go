@@ -561,7 +561,7 @@
         function handleMarkerClick(marker, type, data) {
             const lat = type === 'bus' ? data.lat : data.lat;
             const lon = type === 'bus' ? data.lon : data.lng;
-            STATE.map.flyTo([lat, lon], 17, { animate: true, duration: 0.8 });
+            STATE.map.flyTo([lat, lon], STATE.map.getZoom(), { animate: true, duration: 0.8 });
             openSidebar(type, data);
         }
 
