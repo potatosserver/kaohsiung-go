@@ -50,7 +50,7 @@
 
         /* --- 圖釘與聚合樣式 --- */
         .custom-icon {
-            border: 3px solid white; border-radius: 50%; color: white;
+            border-radius: 50%; color: white;
             display: flex; justify-content: center; align-items: center;
             box-shadow: 0 4px 8px rgba(0,0,0,0.4); 
             transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
@@ -543,7 +543,7 @@
         }
 
         async function loadBikeData() {
-            updateLoading('正在載入 YouBike 站點 (2/3)');
+            updateLoading('正在載入 YouBike 站點 (3/3)');
             try {
                 const res = await fetch(CONFIG.UBIKE_LIST);
                 const data = await res.json();
