@@ -549,7 +549,7 @@
                 const data = await res.json();
                 STATE.dataBike = data.filter(s => s.lat > 22.4 && s.lat < 23.0 && s.lng > 120.1 && s.lng < 120.8);
                 const markers = STATE.dataBike.map(s => {
-                    const marker = L.marker([s.lat, s.lng], { icon: L.divIcon({ className: 'custom-icon ubike-icon', html: '<span class="material-icons-round text-sm">pedal_bike</span>', iconSize: [28, 28] }) });
+                    const marker = L.marker([s.lat, s.lng], { icon: L.divIcon({ className: 'custom-icon ubike-icon', html: '<span class="material-icons-round text-sm">pedal_bike</span>', iconSize: [30, 30] }) });
                     marker.on('click', (e) => { L.DomEvent.stopPropagation(e); handleMarkerClick(marker, 'bike', s); });
                     STATE.markersMap.bike[s.station_no] = marker;
                     return marker;
