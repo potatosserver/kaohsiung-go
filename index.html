@@ -875,43 +875,35 @@
             div.className = 'p-3 flex items-center hover:bg-slate-50 cursor-pointer border-b border-gray-50 last:border-0 transition';
             div.innerHTML = `<div class="w-10 h-10 rounded-full ${color} flex items-center justify-center mr-3 shrink-0"><span class="material-icons-outlined text-lg">${icon}</span></div><div class="min-w-0"><div class="font-bold text-slate-700 text-sm truncate">${name}</div><div class="text-xs text-slate-400 truncate">${sub}</div></div>`;
             
-            // --- 修改點擊事件邏輯 ---
+            // --- 簡單粗暴版點擊事件 ---
             div.onclick = () => {
+                // 1. 清理搜尋欄 UI
                 resultsBox.classList.remove('show');
                 searchInput.value = name;
                 toggleClearBtn();
                 
+                // 2. 取得相關資料
                 const id = type === 'bus' ? data.id : data.station_no;
                 const markerMap = type === 'bus' ? STATE.markersMap.bus : STATE.markersMap.bike;
                 const cluster = type === 'bus' ? STATE.busCluster : STATE.bikeCluster;
-                
-                // 取得目標座標
-                const targetLat = type === 'bus' ? data.lat : data.lat;
-                const targetLng = type === 'bus' ? data.lon : data.lng;
-                const targetLatLng = [targetLat, targetLng];
+                const lat = type === 'bus' ? data.lat : data.lat;
+                const lng = type === 'bus' ? data.lon : data.lng;
 
                 if (markerMap[id]) {
-                    const marker = markerMap[id];
-                    
-                    // 1. 檢查是否在目前視野範圍內
-                    const isInView = STATE.map.getBounds().contains(targetLatLng);
-                    
-                    // 2. 檢查是否是獨立顯示狀態 (沒有被收納在聚合群組裡)
-                    // getVisibleParent(marker) === marker 代表該圖釘已經獨立顯示
-                    const isUnclustered = cluster.getVisibleParent(marker) === marker;
-
-                    if (isInView && isUnclustered) {
-                        // 情況 A：在視野內 且 已經看得到圖釘 -> 不移動地圖，直接開側邊欄
+                    // 3. 直接呼叫 zoomToShowLayer
+                    // 這個函式會自動處理：
+                    // a. 如果在聚合裡 -> 自動放大並展開
+                    // b. 如果已經在外面 -> 不做動作，直接執行 callback
+                    cluster.zoomToShowLayer(markerMap[id], () => {
+                        // 4. 展開後做兩件事：
+                        // 開啟側邊欄
                         openSidebar(type, data);
-                    } else {
-                        // 情況 B：在視野外 或 被收納在聚合裡 -> 移動並縮放顯示
-                        cluster.zoomToShowLayer(marker, () => {
-                            openSidebar(type, data);
-                        });
-                    }
+                        // 強制把地圖「滑」到中間 (PanTo 比 FlyTo 穩定，不會跟向量圖磚打架)
+                        STATE.map.panTo([lat, lng]); 
+                    });
                 } else {
-                    // 例外狀況：找不到標記時，直接飛過去
-                    STATE.map.flyTo(targetLatLng, 18, { animate: true, duration: 0.8 });
+                    // 例外：萬一標記不存在 (極少見)，直接飛過去
+                    STATE.map.setView([lat, lng], 18);
                     openSidebar(type, data);
                 }
             };
