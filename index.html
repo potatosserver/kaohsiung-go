@@ -29,7 +29,7 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
 
-    <!-- MapLibre GL CSS (向量地圖引擎) -->
+    <!-- MapLibre GL CSS -->
     <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
     
     <!-- Tailwind CSS -->
@@ -40,7 +40,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
 
     <style>
-        /* 全域設定：禁止選取文字 */
         body, html { 
             height: 100%; margin: 0; overflow: hidden; 
             font-family: 'Noto Sans TC', sans-serif; 
@@ -51,7 +50,7 @@
         
         #map { height: 100%; width: 100%; z-index: 1; }
 
-        /* --- 圖釘與聚合樣式 --- */
+        /* --- Icons --- */
         .custom-icon {
             border-radius: 50%; color: white;
             display: flex; justify-content: center; align-items: center;
@@ -68,19 +67,17 @@
         .marker-cluster-ubike { background-color: rgba(245, 158, 11, 0.5) !important; }
         .marker-cluster-ubike div { background-color: #d97706 !important; color: white !important; border-radius: 50%; width: 30px; height: 30px; margin-left: 5px; margin-top: 5px; text-align: center; line-height: 30px; font-weight: bold; }
 
-        /* --- 搜尋欄 --- */
+        /* --- Search --- */
         .search-container { 
             position: absolute; top: 12px; left: 50%; transform: translateX(-50%); 
             z-index: 1000; width: 94%; max-width: 400px;
         }
-        
         #search-box {
             background: white; border-radius: 99px;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
             display: flex; align-items: center; padding: 0.5rem 1rem;
             transition: all 0.3s;
         }
-
         #search-results {
             background: white; width: 100%; margin-top: 8px; border-radius: 16px;
             max-height: 50vh; overflow-y: auto; display: none;
@@ -89,27 +86,23 @@
         }
         #search-results.show { display: block; }
 
-        /* --- 側邊欄與 RWD --- */
+        /* --- Sidebar --- */
         #sidebar {
             position: fixed; z-index: 2000; background: white;
             box-shadow: 0 0 25px rgba(0,0,0,0.2);
             display: flex; flex-direction: column;
-            /* 移除舊的 transition 設定，由 JS 動態控制以獲得更好的手勢跟隨效能 */
         }
 
-        /* 手機版設定調整 */
         @media (max-width: 767px) {
             #sidebar {
                 left: 0; bottom: 0; width: 100%; 
-                height: 85vh; /* 增加高度上限，支援 Full 模式 */
+                height: 85vh; 
                 border-radius: 28px 28px 0 0;
-                transform: translateY(110%); /* 初始隱藏 */
-                touch-action: none; /* 重要：防止瀏覽器預設滾動干擾拖曳 */
+                transform: translateY(110%);
+                touch-action: none; 
             }
-            /* 移除 .active 的 CSS transform，改用 JS 控制三段位置 */
         }
 
-        /* 電腦版設定 */
         @media (min-width: 768px) {
             #sidebar {
                 top: 12px; left: 12px; height: calc(100% - 24px); width: 380px;
@@ -126,14 +119,14 @@
             body.sidebar-open .search-container { transform: translateX(410px); }
         }
         
-        /* 載入動畫 */
+        /* Loading */
         #loading-screen { position: fixed; inset: 0; background: rgba(255,255,255,0.95); z-index: 3000; display: flex; flex-direction: column; justify-content: center; align-items: center; transition: opacity 0.5s; pointer-events: none; }
         #loading-screen.visible { pointer-events: auto; }
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #2563eb; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .spin-anim { animation: spin 0.8s linear infinite; }
 
-        /* Toast 通知 */
+        /* Toast */
         #toast-container {
             position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(20px);
             z-index: 4000; pointer-events: none; transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); opacity: 0;
@@ -147,7 +140,7 @@
             display: flex; align-items: center; gap: 8px; border: 1px solid #e2e8f0;
         }
 
-        /* 跳轉確認彈窗 */
+        /* Modal */
         #nav-modal { transition: opacity 0.3s ease; }
         #nav-modal.hidden { opacity: 0; pointer-events: none; }
         #nav-modal:not(.hidden) { opacity: 1; pointer-events: auto; }
@@ -159,14 +152,14 @@
 </head>
 <body>
 
-    <!-- 載入畫面 -->
+    <!-- Loading -->
     <div id="loading-screen" class="visible">
         <div class="loader mb-4"></div>
         <h2 class="text-xl font-bold text-slate-800">高雄交通智慧地圖</h2>
         <p id="loading-text" class="text-sm text-slate-500 mt-2">系統初始化中（1/3）</p>
     </div>
 
-    <!-- Toast 通知 -->
+    <!-- Toast -->
     <div id="toast-container">
         <div id="toast-message" class="toast-content">
             <span id="toast-icon" class="material-icons-round text-lg">info</span>
@@ -174,7 +167,7 @@
         </div>
     </div>
     
-    <!-- 跳轉確認 Modal -->
+    <!-- Modal -->
     <div id="nav-modal" class="fixed inset-0 z-[5000] flex items-center justify-center bg-black/40 backdrop-blur-sm hidden p-4" onclick="handleModalClick(event)">
         <div class="bg-white rounded-3xl shadow-2xl p-6 w-full max-w-sm transform transition-all scale-100" onclick="event.stopPropagation()">
             <div class="flex items-center gap-3 mb-4">
@@ -196,20 +189,16 @@
         </div>
     </div>
 
-    <!-- 搜尋欄 -->
+    <!-- Search -->
     <div class="search-container">
         <div id="search-box">
             <span class="material-icons-outlined text-slate-400 mr-2">search</span>
             <input type="text" id="search-input" placeholder="搜尋公車路線或 YouBike..." 
                    class="flex-1 outline-none text-slate-700 placeholder-slate-400 bg-transparent text-base">
-            
-            <!-- 清除按鈕 -->
             <button id="search-clear" class="hidden p-1 text-slate-300 hover:text-slate-500 hover:bg-slate-100 rounded-full transition mr-1 flex items-center justify-center">
                 <span class="material-icons-round text-lg">cancel</span>
             </button>
-            
             <div class="w-[1px] h-5 bg-gray-200 mx-1"></div>
-            
             <button class="p-2 text-slate-400 hover:text-blue-600 transition" onclick="locateUser()" title="定位">
                 <span class="material-icons-outlined">my_location</span>
             </button>
@@ -217,11 +206,9 @@
         <div id="search-results"></div>
     </div>
 
-    <!-- 側邊欄 -->
+    <!-- Sidebar -->
     <div id="sidebar">
-        <!-- 拖曳控制區 -->
         <div id="drag-area" class="bg-white sticky top-0 z-10 cursor-grab active:cursor-grabbing rounded-t-[28px]">
-            <!-- 手機版把手 -->
             <div class="w-full flex justify-center pt-3 pb-1 md:hidden">
                 <div class="w-12 h-1.5 bg-gray-300 rounded-full"></div>
             </div>
@@ -234,7 +221,7 @@
                         <p id="sb-subtitle" class="text-sm truncate">-</p>
                     </div>
                 </div>
-                <!-- 重新整理按鈕 (修正: 加上 event.stopPropagation) -->
+                <!-- 確保按鈕有 stopPropagation -->
                 <button id="refresh-btn" onclick="event.stopPropagation(); refreshData()" class="w-10 h-10 flex items-center justify-center bg-slate-50 text-slate-500 hover:bg-blue-50 hover:text-blue-600 rounded-full transition shadow-sm border border-slate-100" title="更新即時資料">
                     <span class="material-icons-round text-xl">refresh</span>
                 </button>
@@ -245,11 +232,8 @@
 
     <div id="map"></div>
 
-    <!-- Leaflet & MapLibre Libraries -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
-    
-    <!-- MapLibre JS & Leaflet Binding -->
     <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
     <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.0.21/leaflet-maplibre-gl.js"></script>
 
@@ -265,25 +249,19 @@
             map: null, busCluster: null, bikeCluster: null,
             dataBus: [], dataBike: [], markersMap: { bus: {}, bike: {} },
             currentContext: null, 
-            pendingRouteId: null, 
-            pendingStationId: null,
+            pendingRouteId: null, pendingStationId: null,
             autoRefreshTimer: null,
-            userMarker: null, userAccuracy: null,
-            geoWatcherId: null,
+            userMarker: null, userAccuracy: null, geoWatcherId: null,
             sheetState: 'hidden' // hidden, half, full
         };
 
-        // 預處理樣式檔
         function preprocessStyle(style) {
             if (!style || !style.layers) return style;
             for (const layer of style.layers) {
                 if (layer.layout && layer.layout['text-field']) {
                     layer.layout['text-field'] = [
                         'coalesce',
-                        ['get', 'name:zh-Hant'],
-                        ['get', 'name:zh'],
-                        ['get', 'name:en'],
-                        ['get', 'name']
+                        ['get', 'name:zh-Hant'], ['get', 'name:zh'], ['get', 'name:en'], ['get', 'name']
                     ];
                 }
             }
@@ -292,7 +270,7 @@
 
         window.onload = async () => {
             await initMap();
-            initSidebarGestures(); // 確保這裡呼叫初始化手勢
+            initSidebarGestures();
             await loadBusData();
             await loadBikeData();
             initialLocateUser(); 
@@ -303,7 +281,7 @@
             setTimeout(() => loading.remove(), 500);
             
             if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.register('./service-worker.js').catch(err => console.log('SW Fail'));
+                navigator.serviceWorker.register('./service-worker.js').catch(e => console.log('SW Fail'));
             }
         };
 
@@ -324,7 +302,7 @@
             window.toastTimeout = setTimeout(() => { container.classList.remove('show'); }, 3000);
         }
 
-        // --- 彈窗與跳轉邏輯 ---
+        // --- Redirect Logic ---
         function confirmRedirect(routeId, routeName, stationId) {
             STATE.pendingRouteId = routeId;
             STATE.pendingStationId = stationId;
@@ -345,21 +323,16 @@
 
         window.addEventListener('popstate', (e) => {
             const modal = document.getElementById('nav-modal');
-            if (!modal.classList.contains('hidden')) {
-                modal.classList.add('hidden');
-            }
+            if (!modal.classList.contains('hidden')) modal.classList.add('hidden');
         });
 
-        // --- 自動更新邏輯 ---
+        // --- Auto Refresh ---
         function startAutoRefresh() {
             stopAutoRefresh(); 
             if (!STATE.currentContext) return;
             STATE.autoRefreshTimer = setInterval(() => {
-                if (STATE.sheetState !== 'hidden') {
-                    refreshData(true); 
-                } else {
-                    stopAutoRefresh(); 
-                }
+                if (STATE.sheetState !== 'hidden') refreshData(true); 
+                else stopAutoRefresh(); 
             }, 30000); 
         }
 
@@ -370,12 +343,11 @@
             }
         }
         
-        // --- 定位功能 ---
+        // --- Geolocation ---
         function updateUserLocation(pos) {
             const { latitude, longitude, accuracy } = pos.coords;
             if (STATE.userAccuracy) STATE.map.removeLayer(STATE.userAccuracy);
             if (STATE.userMarker) STATE.map.removeLayer(STATE.userMarker);
-            
             STATE.userAccuracy = L.circle([latitude, longitude], { radius: accuracy, color: '#3b82f6', fillOpacity: 0.1 }).addTo(STATE.map);
             STATE.userMarker = L.marker([latitude, longitude], {
                 icon: L.divIcon({ className: 'bg-blue-600 border-2 border-white rounded-full shadow-lg pulse-ring', iconSize: [14, 14] })
@@ -401,14 +373,11 @@
                 showToast('已停止持續定位', 'info');
                 return;
             }
-
             showToast('持續定位已啟動...', 'info');
             locIcon.innerText = 'gps_fixed';
-
             STATE.geoWatcherId = navigator.geolocation.watchPosition(
                 (pos) => {
                     updateUserLocation(pos);
-                    // 只有當位置超出視野才移動，避免干擾
                     if (!STATE.map.getBounds().contains([pos.coords.latitude, pos.coords.longitude])) {
                          STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17);
                     }
@@ -425,11 +394,8 @@
 
         async function refreshData(isAuto = false) { 
             if (!STATE.currentContext) return;
-            
             const btnIcon = document.querySelector('#refresh-btn span');
-            if (!isAuto && btnIcon) { 
-                btnIcon.classList.add('spin-anim');
-            }
+            if (!isAuto && btnIcon) btnIcon.classList.add('spin-anim');
             
             const { type, data } = STATE.currentContext;
             const content = document.getElementById('sb-content');
@@ -454,53 +420,38 @@
             }
         }
 
+        // --- Map & Data ---
         async function initMap() {
-            STATE.map = L.map('map', { 
-                zoomControl: false, maxZoom: 22, preferCanvas: true 
-            }).setView([22.6273, 120.3014], 17);
-
+            STATE.map = L.map('map', { zoomControl: false, maxZoom: 22, preferCanvas: true }).setView([22.6273, 120.3014], 17);
             try {
                 const response = await fetch(CONFIG.SHORTBREAD_STYLE);
                 let style = preprocessStyle(await response.json());
-
                 L.maplibreGL({
                     style: style,
-                    maplibreGLOptions: {
-                        crossOrigin: 'anonymous',
-                        fadeDuration: 0,
-                        localIdeographFontFamily: "'Noto Sans TC', sans-serif"
-                    },
-                    padding: 0.1,
-                    attribution: '&copy; OpenStreetMap'
+                    maplibreGLOptions: { crossOrigin: 'anonymous', fadeDuration: 0, localIdeographFontFamily: "'Noto Sans TC', sans-serif" },
+                    padding: 0.1, attribution: '&copy; OpenStreetMap'
                 }).addTo(STATE.map);
-            } catch (error) { console.error("Map style error:", error); }
+            } catch (error) { console.error("Style error:", error); }
 
             L.control.zoom({ position: 'bottomright' }).addTo(STATE.map);
-            
-            // 點擊地圖關閉側邊欄 (需配合新邏輯)
             STATE.map.on('click', () => setSidebarState('hidden'));
 
             const clusterOptions = (className) => ({
                 disableClusteringAtZoom: 17, showCoverageOnHover: false, maxClusterRadius: 60,
                 iconCreateFunction: (c) => L.divIcon({ 
-                    html: `<div>${c.getChildCount()}</div>`, 
-                    className: `marker-cluster ${className}`, 
-                    iconSize: [40, 40] 
+                    html: `<div>${c.getChildCount()}</div>`, className: `marker-cluster ${className}`, iconSize: [40, 40] 
                 })
             });
-
             STATE.busCluster = L.markerClusterGroup(clusterOptions('marker-cluster-bus'));
             STATE.bikeCluster = L.markerClusterGroup(clusterOptions('marker-cluster-ubike'));
             STATE.map.addLayer(STATE.busCluster);
             STATE.map.addLayer(STATE.bikeCluster);
         }
 
-        // --- Data Fetching (GraphQL & API) ---
         async function fetchGraphQL(query) {
             try {
                 const response = await fetch(CONFIG.IBUS_API, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Origin': 'https://ibus.tbkc.gov.tw' },
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'Origin': 'https://ibus.tbkc.gov.tw' },
                     body: JSON.stringify({ query })
                 });
                 return await response.json();
@@ -514,7 +465,6 @@
                 const allRoutes = listData.data.routes.edges;
                 const bigQueryBody = allRoutes.map(edge => `r_${edge.node.id}: route(xno: ${edge.node.id}, lang: "zh") { stations { edges { node { id name lat lon } } } }`).join('\n');
                 const result = await fetchGraphQL(`query GOD_MODE_FETCH { ${bigQueryBody} }`);
-
                 if (result.data) {
                     Object.values(result.data).forEach(routeData => {
                         routeData?.stations?.edges.forEach(e => {
@@ -524,10 +474,7 @@
                     });
                 }
                 return Array.from(uniqueStations.values());
-            } catch (e) {
-                console.error("Fetch Failed:", e);
-                return []; 
-            }
+            } catch (e) { return []; }
         }
 
         async function loadBusData() {
@@ -563,19 +510,16 @@
             const lat = type === 'bus' ? data.lat : data.lat;
             const lon = type === 'bus' ? data.lon : data.lng;
             STATE.map.flyTo([lat, lon], STATE.map.getZoom(), { animate: true, duration: 0.8 });
-            
-            // 開啟時，若是手機版，先設為 Half 狀態
             openSidebar(type, data);
         }
 
-        // --- 側邊欄控制核心邏輯 (新版) ---
+        // --- Sidebar Logic ---
         function setSidebarState(newState) {
             const sb = document.getElementById('sidebar');
             const isDesktop = window.innerWidth >= 768;
             STATE.sheetState = newState;
 
             if (isDesktop) {
-                // 電腦版邏輯維持不變
                 if (newState === 'hidden') {
                     sb.classList.remove('active');
                     document.body.classList.remove('sidebar-open');
@@ -584,27 +528,19 @@
                     sb.classList.add('active');
                     document.body.classList.add('sidebar-open');
                 }
-                sb.style.transform = ''; // 清除手機版殘留樣式
+                sb.style.transform = '';
                 return;
             }
 
-            // 手機版邏輯 (三段式)
+            // Mobile logic
             sb.style.transition = 'transform 0.3s cubic-bezier(0.25, 1, 0.5, 1)';
+            const sbHeight = sb.offsetHeight; 
             
-            const sbHeight = sb.offsetHeight; // 應該是 85vh
-            
-            // 計算 translateY 的值
-            // Full: 顯示全部 (Y=0)
-            // Half: 顯示約 40vh (需要計算 offset)
-            // Hidden: 完全隱藏 (Y=100%+)
-
             if (newState === 'full') {
                 sb.style.transform = `translateY(0px)`;
             } else if (newState === 'half') {
-                // 假設我們想顯示 45% 的畫面高度
                 const visibleHeight = window.innerHeight * 0.45;
                 const hiddenPart = sbHeight - visibleHeight;
-                // 確保不要拉太高或太低
                 const translateVal = Math.max(0, hiddenPart);
                 sb.style.transform = `translateY(${translateVal}px)`;
             } else {
@@ -613,16 +549,14 @@
             }
         }
 
-        // 拖曳手勢控制
         function initSidebarGestures() {
             const sidebar = document.getElementById('sidebar');
             const dragArea = document.getElementById('drag-area');
             let startY = 0;
             let currentY = 0;
-            let startTransformY = 0; // 手指按下去時的 translateY 數值
+            let startTransformY = 0;
             let isDragging = false;
 
-            // 取得當前的 translateY 數值
             function getCurrentTranslateY() {
                 const style = window.getComputedStyle(sidebar);
                 const matrix = new WebKitCSSMatrix(style.transform);
@@ -631,23 +565,21 @@
 
             dragArea.addEventListener('touchstart', (e) => {
                 if (window.innerWidth >= 768) return;
+                // --- 修正1：如果點擊目標是按鈕，完全忽略拖曳邏輯 ---
+                if (e.target.closest('button')) return;
+
                 startY = e.touches[0].clientY;
                 startTransformY = getCurrentTranslateY();
                 isDragging = true;
-                sidebar.style.transition = 'none'; // 拖曳時移除動畫，達到跟手效果
+                sidebar.style.transition = 'none';
             }, { passive: true });
 
             dragArea.addEventListener('touchmove', (e) => {
                 if (!isDragging || window.innerWidth >= 768) return;
                 currentY = e.touches[0].clientY;
                 const diff = currentY - startY;
-                
-                // 計算新的位置
                 let newY = startTransformY + diff;
-                
-                // 限制不能拉超過頂部 (newY 不能小於 0)
-                if (newY < 0) newY = newY * 0.4; // 阻尼效果
-
+                if (newY < 0) newY = newY * 0.4; // Damping
                 sidebar.style.transform = `translateY(${newY}px)`;
             }, { passive: true });
 
@@ -656,23 +588,17 @@
                 isDragging = false;
                 
                 const diff = currentY - startY;
-                const h = window.innerHeight;
-                
-                // 判斷邏輯：根據拖曳距離決定下一個狀態
-                // 閾值設為 60px，避免太容易觸發
                 const threshold = 60;
 
                 if (STATE.sheetState === 'half') {
-                    if (diff < -threshold) {
-                        setSidebarState('full'); // 往上拉 -> 全開
-                    } else if (diff > threshold) {
-                        setSidebarState('hidden'); // 往下拉 -> 關閉
-                    } else {
-                        setSidebarState('half'); // 彈回
-                    }
+                    if (diff < -threshold) setSidebarState('full');
+                    else if (diff > threshold) setSidebarState('hidden');
+                    else setSidebarState('half');
                 } else if (STATE.sheetState === 'full') {
-                    if (diff > threshold) {
-                        // 如果往下拉很多，直接變 Half，而不是關閉
+                    // --- 修正2：從 Full 狀態一次關閉的邏輯 ---
+                    if (diff > 300) { // 長滑動 -> 直接關閉
+                        setSidebarState('hidden');
+                    } else if (diff > threshold) { // 短滑動 -> 變半開
                         setSidebarState('half'); 
                     } else {
                         setSidebarState('full'); // 彈回
@@ -686,7 +612,6 @@
         async function openSidebar(type, data) {
             STATE.currentContext = { type, data };
             
-            // 初始化內容
             const content = document.getElementById('sb-content');
             const badge = document.getElementById('sb-badge');
             const title = document.getElementById('sb-title');
@@ -710,19 +635,12 @@
                 renderBikeContent(info, content);
             }
             
-            // 手機版預設打開至 Half 狀態，電腦版則直接顯示
             if (window.innerWidth < 768) {
-                // 如果已經是 Full，保持 Full；否則設為 Half
-                if (STATE.sheetState !== 'full') {
-                    setSidebarState('half');
-                } else {
-                    // 如果已經是 Full，更新高度位置以防內容變化
-                    setSidebarState('full'); 
-                }
+                if (STATE.sheetState !== 'full') setSidebarState('half');
+                else setSidebarState('full'); 
             } else {
-                setSidebarState('full'); // 電腦版邏輯名義上設為 full
+                setSidebarState('full');
             }
-            
             startAutoRefresh(); 
         }
 
