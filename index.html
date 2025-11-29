@@ -450,8 +450,8 @@
             L.control.zoom({ position: 'bottomright' }).addTo(STATE.map);
             STATE.map.on('click', () => toggleSidebar(false));
 
-            STATE.busCluster = L.markerClusterGroup({ showCoverageOnHover: false, maxClusterRadius: 60, iconCreateFunction: (c) => L.divIcon({ html: `<div>${c.getChildCount()}</div>`, className: 'marker-cluster marker-cluster-bus', iconSize: [40, 40] }) });
-            STATE.bikeCluster = L.markerClusterGroup({ showCoverageOnHover: false, maxClusterRadius: 60, iconCreateFunction: (c) => L.divIcon({ html: `<div>${c.getChildCount()}</div>`, className: 'marker-cluster marker-cluster-ubike', iconSize: [40, 40] }) });
+            STATE.busCluster = L.markerClusterGroup({ disableClusteringAtZoom: 16, showCoverageOnHover: false, maxClusterRadius: 60, iconCreateFunction: (c) => L.divIcon({ html: `<div>${c.getChildCount()}</div>`, className: 'marker-cluster marker-cluster-bus', iconSize: [40, 40] }) });
+            STATE.bikeCluster = L.markerClusterGroup({ disableClusteringAtZoom: 16, showCoverageOnHover: false, maxClusterRadius: 60, iconCreateFunction: (c) => L.divIcon({ html: `<div>${c.getChildCount()}</div>`, className: 'marker-cluster marker-cluster-ubike', iconSize: [40, 40] }) });
 
             STATE.map.addLayer(STATE.busCluster);
             STATE.map.addLayer(STATE.bikeCluster);
