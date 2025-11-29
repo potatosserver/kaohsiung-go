@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -254,7 +253,7 @@
             currentContext: null, pendingRouteId: null,
             autoRefreshTimer: null,
             userMarker: null, userAccuracy: null,
-            geoWatcherId: null
+            geoWatcherId: null // 持續定位的 ID
         };
 
         window.onload = async () => {
@@ -320,7 +319,7 @@
             }
         });
 
-        // --- 自動更新邏輯 (NEW) ---
+        // --- 自動更新邏輯 ---
         function startAutoRefresh() {
             stopAutoRefresh(); // 確保清除舊的計時器
             if (!STATE.currentContext) return;
@@ -341,7 +340,7 @@
             }
         }
         
-        // --- 定位功能修改 ---
+        // --- 定位功能 ---
 
         // 輔助函數：在地圖上更新使用者標記和準確度圈
         function updateUserLocation(pos) {
@@ -357,12 +356,12 @@
             }).addTo(STATE.map);
         }
 
-        // 載入時一次性定位 (失敗時不提示)
+        // 載入時一次性定位 (失敗時不提示，成功時移動地圖)
         function initialLocateUser() {
             if (!navigator.geolocation) return;
             navigator.geolocation.getCurrentPosition((pos) => {
                 updateUserLocation(pos);
-                // ⭐ MODIFIED: 初始定位成功後，將地圖視角飛到使用者位置 (zoom 17)
+                // 初始定位成功後，將地圖視角飛到使用者位置 (zoom 17)
                 STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17, { animate: true, duration: 0.8 }); 
 
             }, (err) => {
@@ -393,8 +392,7 @@
             const successCallback = (pos) => {
                 updateUserLocation(pos);
                 
-                // 首次定位成功時，或用戶位置不在當前視窗時，執行 flyTo
-                // ⭐ MODIFIED: 將縮放級別統一為 17
+                // 確保使用者點擊定位鈕後，畫面會移動到他的位置 (zoom 17)
                 if (!STATE.map.getBounds().contains([pos.coords.latitude, pos.coords.longitude])) {
                      STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17);
                 }
@@ -415,7 +413,7 @@
         }
 
         function initMap() {
-            // ⭐ MODIFIED: 初始地圖視角縮放級別改為 17
+            // 初始地圖視角縮放級別改為 17
             STATE.map = L.map('map', { zoomControl: false }).setView([22.6273, 120.3014], 17);
             L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(STATE.map);
             L.control.zoom({ position: 'bottomright' }).addTo(STATE.map);
@@ -723,12 +721,83 @@
             searchInput.focus();
         });
 
+        // ⭐ NEW: 計算搜尋分數的函數
+        function calculateScore(item, key) {
+            const normalizedKey = key.toLowerCase();
+            const type = item.id ? 'bus' : 'bike'; // 用 id 判斷是公車還是 YouBike
+            
+            let name, sub;
+            if (type === 'bus') {
+                name = item.name;
+                sub = item.id.toString(); // 公車 ID 當作次要匹配項
+            } else {
+                name = item.name_tw;
+                sub = item.address_tw; // YouBike 地址當作次要匹配項
+            }
+            
+            const normalizedName = name.toLowerCase();
+            const normalizedSub = sub.toLowerCase();
+
+            let score = 0;
+
+            // 1. 完全匹配 (最高權重: 1000)
+            if (normalizedName === normalizedKey) {
+                score = 1000;
+            } 
+            // 2. 名稱開頭匹配 (800+)
+            else if (normalizedName.startsWith(normalizedKey)) {
+                // 越短的名稱開頭匹配得分越高 (例如 "R1" vs "R10")
+                score = 800 + 100 - normalizedName.length; 
+            }
+            // 3. 名稱包含 (500+)
+            else if (normalizedName.includes(normalizedKey)) {
+                // 越早出現得分越高
+                score = 500 + 50 - normalizedName.indexOf(normalizedKey); 
+            }
+            // 4. 次要欄位 (ID/地址) 包含 (200+)
+            else if (normalizedSub.includes(normalizedKey)) {
+                score = 200 + 50 - normalizedSub.indexOf(normalizedKey); 
+            }
+            
+            return score;
+        }
+
+
+        // ⭐ MODIFIED: 根據匹配度排序的 doSearch 函數
         function doSearch(key) {
             resultsBox.innerHTML = '';
-            const resBus = STATE.dataBus.filter(s => s.name.includes(key) || s.id.toString().includes(key)).slice(0, 8);
-            const resBike = STATE.dataBike.filter(s => s.name_tw.includes(key) || s.address_tw.includes(key)).slice(0, 8);
-            if(resBus.length === 0 && resBike.length === 0) { resultsBox.innerHTML = '<div class="p-4 text-center text-slate-400 text-sm">找不到相關站點</div>'; }
-            else { resBus.forEach(s => appendResult('bus', s)); resBike.forEach(s => appendResult('bike', s)); }
+            
+            // 1. 篩選並計算分數
+            const allResults = [];
+
+            // 處理公車站
+            STATE.dataBus.forEach(s => {
+                const score = calculateScore(s, key);
+                if (score > 0) {
+                    allResults.push({ type: 'bus', data: s, score: score });
+                }
+            });
+
+            // 處理 YouBike
+            STATE.dataBike.forEach(s => {
+                const score = calculateScore(s, key);
+                if (score > 0) {
+                    allResults.push({ type: 'bike', data: s, score: score });
+                }
+            });
+            
+            // 2. 排序 (分數高的優先)
+            allResults.sort((a, b) => b.score - a.score);
+            
+            // 3. 限制數量並渲染
+            const finalResults = allResults.slice(0, 15); // 顯示前 15 個結果
+            
+            if(finalResults.length === 0) { 
+                resultsBox.innerHTML = '<div class="p-4 text-center text-slate-400 text-sm">找不到相關站點</div>'; 
+            } else { 
+                finalResults.forEach(r => appendResult(r.type, r.data)); 
+            }
+            
             resultsBox.classList.add('show');
         }
 
