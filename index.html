@@ -40,12 +40,14 @@
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
 
     <style>
+        /* --- 核心修改 1：禁止網頁整體回彈 --- */
         body, html { 
             height: 100%; margin: 0; overflow: hidden; 
             font-family: 'Noto Sans TC', sans-serif; 
             background: #f3f4f6;
             -webkit-user-select: none; user-select: none;
             -webkit-tap-highlight-color: transparent;
+            overscroll-behavior: none; /* 關鍵：防止地圖拖曳時拉動整個頁面 */
         }
         
         #map { height: 100%; width: 100%; z-index: 1; }
@@ -86,11 +88,23 @@
         }
         #search-results.show { display: block; }
 
-        /* --- Sidebar --- */
+        /* --- Sidebar Layout --- */
         #sidebar {
             position: fixed; z-index: 2000; background: white;
             box-shadow: 0 0 25px rgba(0,0,0,0.2);
             display: flex; flex-direction: column;
+        }
+        
+        /* --- 核心修改 2：修正側邊欄觸控行為 --- */
+        /* 標題拖曳區：禁止瀏覽器預設行為，確保 JS 拖曳邏輯優先 */
+        #drag-area {
+            touch-action: none; 
+        }
+
+        /* 內容區：允許流暢捲動，且滾到底不觸發外層滑動 */
+        #sb-content {
+            overscroll-behavior: contain;
+            -webkit-overflow-scrolling: touch;
         }
 
         @media (max-width: 767px) {
@@ -99,7 +113,7 @@
                 height: 85vh; 
                 border-radius: 28px 28px 0 0;
                 transform: translateY(110%);
-                touch-action: none; 
+                /* touch-action: none;  <-- 已移除此行，解決列表滑動緩慢問題 */
             }
         }
 
@@ -208,6 +222,7 @@
 
     <!-- Sidebar -->
     <div id="sidebar">
+        <!-- Drag Area: CSS has set touch-action: none -->
         <div id="drag-area" class="bg-white sticky top-0 z-10 cursor-grab active:cursor-grabbing rounded-t-[28px]">
             <div class="w-full flex justify-center pt-3 pb-1 md:hidden">
                 <div class="w-12 h-1.5 bg-gray-300 rounded-full"></div>
@@ -227,6 +242,7 @@
                 </button>
             </div>
         </div>
+        <!-- Content: Native scrolling enabled via CSS changes -->
         <div id="sb-content" class="flex-1 overflow-y-auto bg-slate-50 p-4 space-y-3 pb-safe rounded-b-[28px]"></div>
     </div>
 
@@ -565,7 +581,6 @@
 
             dragArea.addEventListener('touchstart', (e) => {
                 if (window.innerWidth >= 768) return;
-                // --- 修正1：如果點擊目標是按鈕，完全忽略拖曳邏輯 ---
                 if (e.target.closest('button')) return;
 
                 startY = e.touches[0].clientY;
@@ -595,13 +610,12 @@
                     else if (diff > threshold) setSidebarState('hidden');
                     else setSidebarState('half');
                 } else if (STATE.sheetState === 'full') {
-                    // --- 修正2：從 Full 狀態一次關閉的邏輯 ---
-                    if (diff > 300) { // 長滑動 -> 直接關閉
+                    if (diff > 300) { 
                         setSidebarState('hidden');
-                    } else if (diff > threshold) { // 短滑動 -> 變半開
+                    } else if (diff > threshold) { 
                         setSidebarState('half'); 
                     } else {
-                        setSidebarState('full'); // 彈回
+                        setSidebarState('full'); 
                     }
                 } else {
                     setSidebarState('hidden');
