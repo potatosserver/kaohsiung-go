@@ -306,14 +306,19 @@
         
         const LOCATE_ICON_ELEMENT = document.querySelector('#search-box button:last-child span');
 
+        // RESTRUCTURED: window.onload now separates initial location from continuous tracking
         window.onload = async () => {
             initMap();
             initSidebarGestures();
+
+            // 1. Perform the one-time, silent location attempt on load
+            initialLocate(); 
             
             await loadBusData();
             await loadBikeData();
             
-            startContinuousGeolocation(false); 
+            // 2. Start the continuous background tracking (will run silently if permission is granted)
+            startContinuousGeolocation(); 
 
             const loading = document.getElementById('loading-screen');
             loading.style.opacity = '0';
@@ -426,36 +431,57 @@
             }
         }
         
-        // --- 定位功能 ---
+        // --- 定位功能 --- (RESTRUCTURED)
+
+        // NEW: Handles the silent, one-time location on page load.
+        function initialLocate() {
+            if (!navigator.geolocation) return;
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    updateUserLocation(pos);
+                    STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17, { animate: true, duration: 1.2 });
+                }, 
+                (err) => { 
+                    // Fails silently, no user notification.
+                    console.error("Initial silent locate failed:", err.message); 
+                }, 
+                { timeout: 8000, enableHighAccuracy: true }
+            );
+        }
+        
+        // REFACTORED: Updates the user's blue dot marker on the map.
         function updateUserLocation(pos) {
             const { latitude, longitude, accuracy } = pos.coords;
             if (STATE.userAccuracy) STATE.map.removeLayer(STATE.userAccuracy);
             if (STATE.userMarker) STATE.map.removeLayer(STATE.userMarker);
             
-            STATE.userAccuracy = L.circle([latitude, longitude], { radius: accuracy, color: '#3b82f6', fillOpacity: 0.1 }).addTo(STATE.map);
+            STATE.userAccuracy = L.circle([latitude, longitude], { radius: accuracy, color: '#3b82f6', fillOpacity: 0.1, weight: 1, interactive: false }).addTo(STATE.map);
             STATE.userMarker = L.marker([latitude, longitude], {
-                icon: L.divIcon({ className: 'bg-blue-600 border-2 border-white rounded-full shadow-lg pulse-ring', iconSize: [14, 14] })
+                icon: L.divIcon({ className: 'bg-blue-600 border-2 border-white rounded-full shadow-lg', iconSize: [14, 14] })
             }).addTo(STATE.map);
         }
 
-        function startContinuousGeolocation(centerInitial = false) {
+        // REFACTORED: Now only handles continuous, silent background tracking.
+        function startContinuousGeolocation() {
             if (!navigator.geolocation) return;
-            if (STATE.geoWatcherId) {
-                LOCATE_ICON_ELEMENT.innerText = 'gps_fixed';
-                return;
-            }
+            if (STATE.geoWatcherId) return; // Prevent multiple watchers.
             
             LOCATE_ICON_ELEMENT.innerText = 'gps_fixed';
 
             const successCallback = (pos) => {
+                // Only updates the marker, does NOT move the map.
                 updateUserLocation(pos);
-                if (centerInitial) {
-                    STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17, { animate: true, duration: 0.8 });
-                    if (centerInitial) centerInitial = false; 
-                }
             };
             
-            const errorCallback = (err) => { };
+            const errorCallback = (err) => {
+                // Fails silently, no user notification.
+                console.error("Background geolocation watch error:", err.message);
+                LOCATE_ICON_ELEMENT.innerText = 'my_location';
+                if(STATE.geoWatcherId) {
+                    navigator.geolocation.clearWatch(STATE.geoWatcherId);
+                    STATE.geoWatcherId = null;
+                }
+            };
 
             STATE.geoWatcherId = navigator.geolocation.watchPosition(
                 successCallback, 
@@ -464,28 +490,32 @@
             );
         }
         
+        // REFACTORED: The button click handler with explicit user feedback.
         function locateUser() {
             if (!navigator.geolocation) {
                 return showToast('瀏覽器不支援定位', 'error');
             }
+            
+            LOCATE_ICON_ELEMENT.classList.add('spin-anim');
 
-            if (STATE.geoWatcherId) {
-                if (STATE.userMarker) {
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    LOCATE_ICON_ELEMENT.classList.remove('spin-anim');
+                    updateUserLocation(pos);
                     STATE.map.flyTo(STATE.userMarker.getLatLng(), 18, { animate: true, duration: 0.8 });
                     showToast('地圖已重新定位到您的位置', 'info');
-                } else {
-                    navigator.geolocation.getCurrentPosition((pos) => {
-                        updateUserLocation(pos);
-                        STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 18, { animate: true, duration: 0.8 });
-                        showToast('地圖已重新定位到您的位置', 'info');
-                    }, (err) => { 
-                        showToast('無法取得您的即時位置', 'error'); 
-                    }, { timeout: 5000 });
-                }
-            } else {
-                startContinuousGeolocation(true);
-                showToast('持續定位已啟動...', 'info');
-            }
+                    // Ensure continuous tracking is running after a successful manual locate
+                    if (!STATE.geoWatcherId) {
+                        startContinuousGeolocation();
+                    }
+                },
+                (err) => {
+                    LOCATE_ICON_ELEMENT.classList.remove('spin-anim');
+                    // Shows an explicit error message to the user.
+                    showToast('無法取得您的即時位置', 'error');
+                },
+                { timeout: 8000, enableHighAccuracy: true }
+            );
         }
 
         async function refreshData(isAuto = false) { 
@@ -649,7 +679,7 @@
             }
         }
 
-        // --- Sidebar 手勢邏輯 --- REWRITTEN WITH VELOCITY
+        // --- Sidebar 手勢邏輯 ---
         function initSidebarGestures() {
             const sidebarHeader = document.getElementById('sidebar-header');
             const sidebar = document.getElementById('sidebar');
@@ -671,7 +701,7 @@
                 isDragging = true;
                 startY = e.touches[0].clientY;
                 startHeight = sidebar.offsetHeight;
-                startTime = Date.now(); // Record start time for velocity calculation
+                startTime = Date.now();
                 sidebar.style.transition = 'none';
             }, { passive: true });
 
@@ -699,19 +729,14 @@
                 const endY = e.changedTouches[0].clientY;
                 const duration = Date.now() - startTime;
                 
-                // Calculate velocity: pixels per millisecond
                 const velocity = (endY - startY) / duration;
 
-                // Condition 1: Fast flick down (velocity > 0.8px/ms)
                 const isFlickDown = velocity > 0.8;
-
-                // Condition 2: Dragged to a nearly closed state (< 15% of screen height)
                 const isIntentionallyClosed = finalHeight < window.innerHeight * 0.15;
 
                 if (isFlickDown || isIntentionallyClosed) {
                     toggleSidebar(false);
                 } else {
-                    // Snap to the final dragged position
                     sidebar.style.height = `${finalHeight}px`;
                 }
             });
