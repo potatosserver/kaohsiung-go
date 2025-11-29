@@ -1,6 +1,6 @@
 // Service Worker Version
 // 更新版本號以觸發 activate 事件清除舊快取
-const CACHE_NAME = 'kh-transport-vector-v1';
+const CACHE_NAME = 'kh-transport-v2';
 
 // 這些資源會被安裝時預先快取
 const STATIC_ASSETS = [
@@ -15,14 +15,6 @@ const STATIC_ASSETS = [
     'https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css',
     'https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css',
     'https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js',
-    
-    // [新] MapLibre GL (向量地圖引擎)
-    'https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css',
-    'https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js',
-    'https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.0.21/leaflet-maplibre-gl.js',
-
-    // [新] 地圖樣式檔 (確保離線能讀取樣式設定)
-    'https://potatosserver.github.io/map/shortbread.json',
     
     // UI 樣式與字型
     'https://cdn.tailwindcss.com',
@@ -80,16 +72,10 @@ self.addEventListener('fetch', event => {
                     return networkResponse;
                 }
 
-                // 檢查是否為可以快取的類型
-                // type 'basic': 同源請求
-                // type 'cors': 跨域請求 (CDN, 地圖圖磚, 字型檔通常是這個)
-                // type 'opaque': 不透明回應 (通常不建議快取，但在某些圖片資源可能需要)
+                // 只快取同源 (basic) 或明確成功的跨域 (cors) 請求
+                // 這是為了避免快取不透明 (opaque) 的錯誤回應
                 const responseType = networkResponse.type;
                 if (responseType !== 'basic' && responseType !== 'cors') {
-                    // 如果不是 basic 或 cors (例如 opaque)，視情況決定是否不快取
-                    // 為了安全起見，這裡只快取明確成功的 cors 資源
-                    // 但有些地圖資源可能是 opaque，若地圖出不來可考慮放寬
-                    // 目前設定：只快取 Basic 和 CORS
                     return networkResponse;
                 }
 
@@ -101,7 +87,8 @@ self.addEventListener('fetch', event => {
 
                 return networkResponse;
             }).catch(() => {
-                // 離線且快取沒資料時的 fallback (可選)
+                // 當網路請求失敗且快取中也沒有對應資源時會觸發
+                // 可選擇性地回傳一個預設的離線頁面或資源
                 // console.log('Fetch failed and no cache for:', event.request.url);
             });
         })
