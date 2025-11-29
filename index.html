@@ -3,130 +3,131 @@
 <head>
     <meta charset="UTF-8">
     <meta name="author" content="卓稟鈞(AndrewCho)">
-    <meta name="description" content="一個專為高雄市的簡單、美觀且低流量的整合式大眾運輸搜尋器，提供快速查詢路線資訊功能，滿足即時需求，適合所有用戶使用。">
-    <meta name="keywords" content="高雄市公車, 高雄公車, 高雄市公車即時資訊, 公車即時資訊, 公車式小黃, 公車小黃, 幹線, 幹線公車, 快線, 快線公車, 紅線公車, 橘線公車, 黃線公車, 綠線公車, Github, github.io" />
-    <meta property="og:site_name" content="高雄交通智慧地圖" />
+    <meta name="description" content="高雄市公車即時動態查詢">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>高雄交通智慧地圖</title>
-    
-    <!-- Favicon Settings -->
-    <link rel="shortcut icon" href="/icons/icon.ico" type="image/x-icon">
-    <link rel="icon" href="/icons/icon.ico" type="image/x-icon">
     
     <!-- PWA Settings -->
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#ffffff">
     <meta name="mobile-web-app-capable" content="yes">
-    
-    <!-- iOS Support -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="apple-mobile-web-app-title" content="高雄交通">
-    <link rel="apple-touch-icon" href="icons/icon-192x192.png">
-
-    <!-- Leaflet CSS -->
+    
+    <!-- CSS Libs -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
-
-    <!-- MapLibre GL CSS -->
     <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
-    
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- Icons -->
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined|Material+Icons+Round" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
 
     <style>
-        /* --- 核心修改 1：禁止網頁整體回彈 --- */
+        /* --- 系統級優化 --- */
         body, html { 
             height: 100%; margin: 0; overflow: hidden; 
             font-family: 'Noto Sans TC', sans-serif; 
             background: #f3f4f6;
             -webkit-user-select: none; user-select: none;
             -webkit-tap-highlight-color: transparent;
-            overscroll-behavior: none; /* 關鍵：防止地圖拖曳時拉動整個頁面 */
+            overscroll-behavior: none;
+        }
+
+        #map { 
+            height: 100%; width: 100%; z-index: 1; 
+            background: #e5e7eb; 
         }
         
-        #map { height: 100%; width: 100%; z-index: 1; }
-
-        /* --- Icons --- */
+        .leaflet-map-pane {
+            transform: translate3d(0,0,0);
+            will-change: transform;
+        }
+        
+        /* --- 圖釘樣式 --- */
         .custom-icon {
             border-radius: 50%; color: white;
             display: flex; justify-content: center; align-items: center;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.4); 
-            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 3px 6px rgba(0,0,0,0.3);
+            border: 2px solid white; 
             cursor: pointer;
+            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            backface-visibility: hidden;
+            will-change: transform;
         }
-        .custom-icon:hover { transform: scale(1.2); z-index: 1000 !important; }
+        
+        @media (hover: hover) {
+            .custom-icon:hover { transform: scale(1.15); z-index: 1000 !important; }
+        }
+
         .bus-icon { background: #2563eb; }
         .ubike-icon { background: #f59e0b; }
 
-        .marker-cluster-bus { background-color: rgba(59, 130, 246, 0.5) !important; }
-        .marker-cluster-bus div { background-color: #1d4ed8 !important; color: white !important; border-radius: 50%; width: 30px; height: 30px; margin-left: 5px; margin-top: 5px; text-align: center; line-height: 30px; font-weight: bold; }
-        .marker-cluster-ubike { background-color: rgba(245, 158, 11, 0.5) !important; }
-        .marker-cluster-ubike div { background-color: #d97706 !important; color: white !important; border-radius: 50%; width: 30px; height: 30px; margin-left: 5px; margin-top: 5px; text-align: center; line-height: 30px; font-weight: bold; }
+        .marker-cluster-bus, .marker-cluster-ubike { background: transparent !important; }
+        
+        .cluster-content {
+            width: 36px; height: 36px;
+            border-radius: 50%; color: white; font-weight: bold; font-size: 14px;
+            display: flex; justify-content: center; align-items: center;
+            border: 2px solid white; box-shadow: 0 3px 6px rgba(0,0,0,0.25);
+            transition: transform 0.2s; will-change: transform;
+        }
+        
+        .bg-bus { background-color: #2563eb; }
+        .bg-ubike { background-color: #d97706; }
 
-        /* --- Search --- */
+        /* --- UI Components --- */
         .search-container { 
             position: absolute; top: 12px; left: 50%; transform: translateX(-50%); 
             z-index: 1000; width: 94%; max-width: 400px;
         }
         #search-box {
             background: white; border-radius: 99px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
             display: flex; align-items: center; padding: 0.5rem 1rem;
-            transition: all 0.3s;
+            transition: transform 0.2s;
         }
+        #search-box:active { transform: scale(0.98); }
+        
         #search-results {
             background: white; width: 100%; margin-top: 8px; border-radius: 16px;
             max-height: 50vh; overflow-y: auto; display: none;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-            border: 1px solid #f3f4f6;
+            box-shadow: 0 10px 20px -3px rgba(0, 0, 0, 0.15); border: 1px solid #f3f4f6;
         }
         #search-results.show { display: block; }
 
-        /* --- Sidebar Layout --- */
+        /* --- Sidebar & Layout Logic (Orientation Based) --- */
         #sidebar {
             position: fixed; z-index: 2000; background: white;
-            box-shadow: 0 0 25px rgba(0,0,0,0.2);
+            box-shadow: 0 -5px 25px rgba(0,0,0,0.1);
             display: flex; flex-direction: column;
         }
         
-        /* --- 核心修改 2：修正側邊欄觸控行為 --- */
-        /* 標題拖曳區：禁止瀏覽器預設行為，確保 JS 拖曳邏輯優先 */
-        #drag-area {
-            touch-action: none; 
-        }
+        #drag-area { touch-action: none; }
+        #sb-content { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 
-        /* 內容區：允許流暢捲動，且滾到底不觸發外層滑動 */
-        #sb-content {
-            overscroll-behavior: contain;
-            -webkit-overflow-scrolling: touch;
-        }
-
-        @media (max-width: 767px) {
+        /* 直式 (Portrait) = 手機模式 (Sheet) */
+        @media (orientation: portrait) {
             #sidebar {
-                left: 0; bottom: 0; width: 100%; 
-                height: 85vh; 
-                border-radius: 28px 28px 0 0;
-                transform: translateY(110%);
-                /* touch-action: none;  <-- 已移除此行，解決列表滑動緩慢問題 */
+                left: 0; bottom: 0; width: 100%; height: 85vh; 
+                border-radius: 28px 28px 0 0; transform: translateY(110%);
+                transition: transform 0.35s cubic-bezier(0.165, 0.84, 0.44, 1);
             }
+            .search-container { width: 94%; }
+            body.sidebar-open .search-container { transform: none; }
         }
 
-        @media (min-width: 768px) {
+        /* 橫式 (Landscape) = 電腦/平板模式 (Side Panel) */
+        @media (orientation: landscape) {
             #sidebar {
                 top: 12px; left: 12px; height: calc(100% - 24px); width: 380px;
-                transform: translateX(-110%);
-                border-radius: 24px; border: 1px solid #e5e7eb;
+                transform: translateX(-110%); border-radius: 24px; border: 1px solid #e5e7eb;
                 transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+                box-shadow: 5px 0 25px rgba(0,0,0,0.1);
             }
             #sidebar.active { transform: translateX(0); }
-
-            .search-container {
+            
+            .search-container { 
                 top: 20px; left: 20px; width: 380px; max-width: none;
                 transform: none; transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
             }
@@ -141,23 +142,24 @@
         .spin-anim { animation: spin 0.8s linear infinite; }
 
         /* Toast */
-        #toast-container {
-            position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(20px);
-            z-index: 4000; pointer-events: none; transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); opacity: 0;
-            width: 90%; max-width: 300px; display: flex; justify-content: center;
-        }
+        #toast-container { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(20px); z-index: 4000; pointer-events: none; transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); opacity: 0; width: 90%; max-width: 300px; display: flex; justify-content: center; }
         #toast-container.show { transform: translateX(-50%) translateY(0); opacity: 1; }
-        .toast-content {
-            background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(8px);
-            color: #1e293b; padding: 10px 20px; border-radius: 99px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.15); font-size: 14px; font-weight: 500;
-            display: flex; align-items: center; gap: 8px; border: 1px solid #e2e8f0;
-        }
+        .toast-content { background: rgba(30, 41, 59, 0.9); backdrop-filter: blur(8px); color: #fff; padding: 10px 20px; border-radius: 99px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
 
         /* Modal */
         #nav-modal { transition: opacity 0.3s ease; }
         #nav-modal.hidden { opacity: 0; pointer-events: none; }
         #nav-modal:not(.hidden) { opacity: 1; pointer-events: auto; }
+
+        /* Iframe Overlay */
+        #iframe-overlay {
+            position: fixed; inset: 0; z-index: 6000; 
+            background: white; 
+            transform: translateY(100%); transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+        #iframe-overlay.active { transform: translateY(0); }
+        
+        .tracker-iframe { border: 0; width: 100%; height: 100%; display: block; position: relative; z-index: 10; background: white; }
         
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
@@ -166,14 +168,12 @@
 </head>
 <body>
 
-    <!-- Loading -->
     <div id="loading-screen" class="visible">
         <div class="loader mb-4"></div>
         <h2 class="text-xl font-bold text-slate-800">高雄交通智慧地圖</h2>
-        <p id="loading-text" class="text-sm text-slate-500 mt-2">系統初始化中（1/3）</p>
+        <p id="loading-text" class="text-sm text-slate-500 mt-2">系統初始化中...</p>
     </div>
 
-    <!-- Toast -->
     <div id="toast-container">
         <div id="toast-message" class="toast-content">
             <span id="toast-icon" class="material-icons-round text-lg">info</span>
@@ -181,68 +181,59 @@
         </div>
     </div>
     
-    <!-- Modal -->
+    <!-- Confirmation Modal -->
     <div id="nav-modal" class="fixed inset-0 z-[5000] flex items-center justify-center bg-black/40 backdrop-blur-sm hidden p-4" onclick="handleModalClick(event)">
-        <div class="bg-white rounded-3xl shadow-2xl p-6 w-full max-w-sm transform transition-all scale-100" onclick="event.stopPropagation()">
+        <div class="bg-white rounded-3xl shadow-2xl p-6 w-full max-w-sm transition-transform scale-100" onclick="event.stopPropagation()">
             <div class="flex items-center gap-3 mb-4">
                 <div class="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center flex-shrink-0">
                     <span class="material-icons-round text-xl">directions_bus</span>
                 </div>
                 <div>
                     <h3 class="text-lg font-bold text-slate-800">查看路線動態</h3>
-                    <p class="text-sm text-slate-500">將前往外部頁面</p>
                 </div>
             </div>
-            <p class="text-slate-600 mb-6">
-                是否查看 <span id="nav-route-name" class="font-bold text-blue-600">紅53</span> 的詳細動態？
-            </p>
+            <p class="text-slate-600 mb-6">是否查看 <span id="nav-route-name" class="font-bold text-blue-600">紅53</span> 的詳細動態？</p>
             <div class="flex gap-3">
-                <button onclick="cancelRedirect()" class="flex-1 py-3 px-4 rounded-xl bg-gray-100 text-slate-700 font-bold hover:bg-gray-200 transition">取消</button>
-                <button onclick="doRedirect()" class="flex-1 py-3 px-4 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition">前往</button>
+                <button onclick="closeModal()" class="flex-1 py-3 px-4 rounded-xl bg-gray-100 text-slate-700 font-bold hover:bg-gray-200 transition">取消</button>
+                <button onclick="openTracker()" class="flex-1 py-3 px-4 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition">前往</button>
             </div>
         </div>
     </div>
 
-    <!-- Search -->
+    <!-- Iframe Overlay -->
+    <div id="iframe-overlay">
+        <div id="iframe-loader" class="absolute inset-0 flex items-center justify-center z-0">
+            <div class="loader w-8 h-8 border-2"></div>
+        </div>
+        <!-- Iframe 將由 JS 動態生成 -->
+        <div id="iframe-container" class="w-full h-full relative z-10"></div>
+    </div>
+
     <div class="search-container">
         <div id="search-box">
             <span class="material-icons-outlined text-slate-400 mr-2">search</span>
-            <input type="text" id="search-input" placeholder="搜尋公車路線或 YouBike..." 
-                   class="flex-1 outline-none text-slate-700 placeholder-slate-400 bg-transparent text-base">
-            <button id="search-clear" class="hidden p-1 text-slate-300 hover:text-slate-500 hover:bg-slate-100 rounded-full transition mr-1 flex items-center justify-center">
-                <span class="material-icons-round text-lg">cancel</span>
-            </button>
+            <input type="text" id="search-input" placeholder="搜尋公車路線或 YouBike..." class="flex-1 outline-none text-slate-700 placeholder-slate-400 bg-transparent text-base">
+            <button id="search-clear" class="hidden p-1 text-slate-300 hover:text-slate-500 rounded-full mr-1 transition"><span class="material-icons-round text-lg">cancel</span></button>
             <div class="w-[1px] h-5 bg-gray-200 mx-1"></div>
-            <button class="p-2 text-slate-400 hover:text-blue-600 transition" onclick="locateUser()" title="定位">
-                <span class="material-icons-outlined">my_location</span>
-            </button>
+            <button class="p-2 text-slate-400 hover:text-blue-600 transition" onclick="locateUser()"><span class="material-icons-outlined">my_location</span></button>
         </div>
         <div id="search-results"></div>
     </div>
 
-    <!-- Sidebar -->
     <div id="sidebar">
-        <!-- Drag Area: CSS has set touch-action: none -->
         <div id="drag-area" class="bg-white sticky top-0 z-10 cursor-grab active:cursor-grabbing rounded-t-[28px]">
-            <div class="w-full flex justify-center pt-3 pb-1 md:hidden">
+            <div class="w-full flex justify-center pt-3 pb-1 md:hidden portrait-handle">
                 <div class="w-12 h-1.5 bg-gray-300 rounded-full"></div>
             </div>
             <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-start">
                 <div class="flex-1 min-w-0 pr-2">
-                    <div id="sb-badge" class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold mb-2 transition-colors bg-gray-100 text-gray-600">載入中</div>
-                    <h2 id="sb-title" class="text-2xl font-bold text-slate-800 leading-tight truncate">請選擇站點</h2>
-                    <div class="flex items-center mt-1 text-slate-500">
-                        <span class="material-icons-outlined text-sm mr-1">place</span>
-                        <p id="sb-subtitle" class="text-sm truncate">-</p>
-                    </div>
+                    <div id="sb-badge" class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold mb-2 bg-gray-100 text-gray-600">載入中</div>
+                    <h2 id="sb-title" class="text-2xl font-bold text-slate-800 truncate">請選擇站點</h2>
+                    <p id="sb-subtitle" class="text-sm text-slate-500 truncate mt-1">-</p>
                 </div>
-                <!-- 確保按鈕有 stopPropagation -->
-                <button id="refresh-btn" onclick="event.stopPropagation(); refreshData()" class="w-10 h-10 flex items-center justify-center bg-slate-50 text-slate-500 hover:bg-blue-50 hover:text-blue-600 rounded-full transition shadow-sm border border-slate-100" title="更新即時資料">
-                    <span class="material-icons-round text-xl">refresh</span>
-                </button>
+                <button id="refresh-btn" onclick="event.stopPropagation(); refreshData()" class="w-10 h-10 flex items-center justify-center bg-slate-50 text-slate-500 hover:bg-blue-50 hover:text-blue-600 rounded-full shadow-sm border border-slate-100 transition"><span class="material-icons-round text-xl">refresh</span></button>
             </div>
         </div>
-        <!-- Content: Native scrolling enabled via CSS changes -->
         <div id="sb-content" class="flex-1 overflow-y-auto bg-slate-50 p-4 space-y-3 pb-safe rounded-b-[28px]"></div>
     </div>
 
@@ -264,21 +255,18 @@
         const STATE = {
             map: null, busCluster: null, bikeCluster: null,
             dataBus: [], dataBike: [], markersMap: { bus: {}, bike: {} },
-            currentContext: null, 
-            pendingRouteId: null, pendingStationId: null,
-            autoRefreshTimer: null,
-            userMarker: null, userAccuracy: null, geoWatcherId: null,
-            sheetState: 'hidden' // hidden, half, full
+            currentContext: null, pendingRouteId: null, pendingStationId: null, pendingRouteName: null,
+            autoRefreshTimer: null, userMarker: null, userAccuracy: null, geoWatcherId: null,
+            sheetState: 'hidden'
         };
+
+        const isPortrait = () => window.innerHeight > window.innerWidth;
 
         function preprocessStyle(style) {
             if (!style || !style.layers) return style;
             for (const layer of style.layers) {
                 if (layer.layout && layer.layout['text-field']) {
-                    layer.layout['text-field'] = [
-                        'coalesce',
-                        ['get', 'name:zh-Hant'], ['get', 'name:zh'], ['get', 'name:en'], ['get', 'name']
-                    ];
+                    layer.layout['text-field'] = ['coalesce', ['get', 'name:zh-Hant'], ['get', 'name:zh'], ['get', 'name:en'], ['get', 'name']];
                 }
             }
             return style;
@@ -287,158 +275,141 @@
         window.onload = async () => {
             await initMap();
             initSidebarGestures();
-            await loadBusData();
-            await loadBikeData();
+            Promise.all([loadBusData(), loadBikeData()]).then(() => {
+                const loading = document.getElementById('loading-screen');
+                loading.style.opacity = '0';
+                loading.classList.remove('visible');
+                setTimeout(() => loading.remove(), 500);
+            });
             initialLocateUser(); 
-
-            const loading = document.getElementById('loading-screen');
-            loading.style.opacity = '0';
-            loading.classList.remove('visible');
-            setTimeout(() => loading.remove(), 500);
+            if ('serviceWorker' in navigator) navigator.serviceWorker.register('./service-worker.js').catch(e=>{});
             
-            if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.register('./service-worker.js').catch(e => console.log('SW Fail'));
-            }
+            window.addEventListener('resize', () => {
+                if (STATE.sheetState !== 'hidden') {
+                    setSidebarState(isPortrait() ? 'half' : 'active');
+                }
+            });
         };
 
         function updateLoading(txt) { document.getElementById('loading-text').innerText = txt; }
-
+        
         function showToast(msg, type = 'info') {
             const container = document.getElementById('toast-container');
-            const text = document.getElementById('toast-text');
             const icon = document.getElementById('toast-icon');
-            text.innerText = msg;
-            
-            if (type === 'error') { icon.innerText = 'error'; icon.className = 'material-icons-round text-red-500 text-xl'; } 
-            else if (type === 'success') { icon.innerText = 'check_circle'; icon.className = 'material-icons-round text-green-500 text-xl'; } 
-            else { icon.innerText = 'info'; icon.className = 'material-icons-round text-blue-500 text-xl'; }
-
+            document.getElementById('toast-text').innerText = msg;
+            icon.innerText = type === 'error' ? 'error' : (type === 'success' ? 'check_circle' : 'info');
+            icon.className = `material-icons-round text-xl ${type === 'error' ? 'text-red-400' : (type === 'success' ? 'text-green-400' : 'text-blue-400')}`;
             container.classList.add('show');
             if (window.toastTimeout) clearTimeout(window.toastTimeout);
             window.toastTimeout = setTimeout(() => { container.classList.remove('show'); }, 3000);
         }
 
-        // --- Redirect Logic ---
+        // --- Navigation Logic ---
         function confirmRedirect(routeId, routeName, stationId) {
-            STATE.pendingRouteId = routeId;
+            STATE.pendingRouteId = routeId; 
             STATE.pendingStationId = stationId;
+            STATE.pendingRouteName = routeName;
             document.getElementById('nav-route-name').innerText = routeName;
             document.getElementById('nav-modal').classList.remove('hidden');
-            history.pushState({ modal: 'nav' }, null, '');
+            history.pushState({ modal: 'confirm' }, null, '');
         }
 
-        function doRedirect() {
+        function closeModal() {
+            history.back();
+        }
+
+        function openTracker() {
             if (STATE.pendingRouteId) {
-                let url = `https://kaohsiung-live-bus.pages.dev/?page=tracker&route=${STATE.pendingRouteId}`;
-                if(STATE.pendingStationId) url += `&station=${STATE.pendingStationId}`;
-                window.location.href = url;
+                const url = `https://kaohsiung-live-bus.pages.dev/?page=tracker&route=${STATE.pendingRouteId}${STATE.pendingStationId ? '&station='+STATE.pendingStationId : ''}`;
+                
+                const container = document.getElementById('iframe-container');
+                container.innerHTML = ''; 
+                
+                const iframe = document.createElement('iframe');
+                iframe.className = 'tracker-iframe';
+                iframe.sandbox = 'allow-scripts allow-same-origin allow-forms allow-popups';
+                iframe.src = url;
+                
+                container.appendChild(iframe);
+
+                document.getElementById('nav-modal').classList.add('hidden');
+                document.getElementById('iframe-overlay').classList.add('active');
+
+                history.replaceState({ modal: 'iframe' }, null, '');
             }
         }
-
-        function cancelRedirect() { history.back(); }
 
         window.addEventListener('popstate', (e) => {
             const modal = document.getElementById('nav-modal');
-            if (!modal.classList.contains('hidden')) modal.classList.add('hidden');
+            const iframeOverlay = document.getElementById('iframe-overlay');
+            const container = document.getElementById('iframe-container');
+
+            if (!e.state || e.state.modal !== 'confirm') {
+                if (!modal.classList.contains('hidden')) modal.classList.add('hidden');
+            }
+            
+            if (!e.state || e.state.modal !== 'iframe') {
+                if (iframeOverlay.classList.contains('active')) {
+                    iframeOverlay.classList.remove('active');
+                    setTimeout(() => { container.innerHTML = ''; }, 300);
+                }
+            }
+            
+            if (e.state?.modal === 'confirm') modal.classList.remove('hidden');
+            if (e.state?.modal === 'iframe') iframeOverlay.classList.add('active');
         });
 
-        // --- Auto Refresh ---
-        function startAutoRefresh() {
-            stopAutoRefresh(); 
-            if (!STATE.currentContext) return;
-            STATE.autoRefreshTimer = setInterval(() => {
-                if (STATE.sheetState !== 'hidden') refreshData(true); 
-                else stopAutoRefresh(); 
-            }, 30000); 
-        }
+        // --- App Logic ---
 
-        function stopAutoRefresh() {
-            if (STATE.autoRefreshTimer) {
-                clearInterval(STATE.autoRefreshTimer);
-                STATE.autoRefreshTimer = null;
-            }
-        }
-        
-        // --- Geolocation ---
+        function startAutoRefresh() { stopAutoRefresh(); if (STATE.currentContext) STATE.autoRefreshTimer = setInterval(() => { if (STATE.sheetState !== 'hidden') refreshData(true); else stopAutoRefresh(); }, 30000); }
+        function stopAutoRefresh() { if (STATE.autoRefreshTimer) { clearInterval(STATE.autoRefreshTimer); STATE.autoRefreshTimer = null; } }
+
         function updateUserLocation(pos) {
             const { latitude, longitude, accuracy } = pos.coords;
             if (STATE.userAccuracy) STATE.map.removeLayer(STATE.userAccuracy);
             if (STATE.userMarker) STATE.map.removeLayer(STATE.userMarker);
             STATE.userAccuracy = L.circle([latitude, longitude], { radius: accuracy, color: '#3b82f6', fillOpacity: 0.1 }).addTo(STATE.map);
-            STATE.userMarker = L.marker([latitude, longitude], {
-                icon: L.divIcon({ className: 'bg-blue-600 border-2 border-white rounded-full shadow-lg pulse-ring', iconSize: [14, 14] })
-            }).addTo(STATE.map);
+            STATE.userMarker = L.marker([latitude, longitude], { icon: L.divIcon({ className: 'bg-blue-600 border-2 border-white rounded-full shadow-lg', iconSize: [14, 14] }) }).addTo(STATE.map);
         }
-
         function initialLocateUser() {
-            if (!navigator.geolocation) return;
-            navigator.geolocation.getCurrentPosition((pos) => {
-                updateUserLocation(pos);
-                STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17, { animate: true, duration: 0.8 }); 
-            }, null, { timeout: 5000, enableHighAccuracy: true });
+            if (navigator.geolocation) navigator.geolocation.getCurrentPosition((pos) => { updateUserLocation(pos); STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17, { animate: true, duration: 0.8 }); }, null, { timeout: 5000 });
+        }
+        function locateUser() {
+            if (!navigator.geolocation) return showToast('不支援定位', 'error');
+            const locIcon = document.querySelector('#search-box button:last-child span');
+            if (STATE.geoWatcherId) { navigator.geolocation.clearWatch(STATE.geoWatcherId); STATE.geoWatcherId = null; locIcon.innerText = 'my_location'; showToast('停止持續定位'); return; }
+            showToast('定位中...'); locIcon.innerText = 'gps_fixed';
+            STATE.geoWatcherId = navigator.geolocation.watchPosition((pos) => { updateUserLocation(pos); if (!STATE.map.getBounds().contains([pos.coords.latitude, pos.coords.longitude])) STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17); }, () => { locIcon.innerText = 'my_location'; STATE.geoWatcherId = null; }, { enableHighAccuracy: true });
         }
 
-        function locateUser() {
-            const locIcon = document.querySelector('#search-box button:last-child span');
-            if (!navigator.geolocation) return showToast('瀏覽器不支援定位', 'error');
-
-            if (STATE.geoWatcherId) {
-                navigator.geolocation.clearWatch(STATE.geoWatcherId);
-                STATE.geoWatcherId = null;
-                locIcon.innerText = 'my_location';
-                showToast('已停止持續定位', 'info');
-                return;
-            }
-            showToast('持續定位已啟動...', 'info');
-            locIcon.innerText = 'gps_fixed';
-            STATE.geoWatcherId = navigator.geolocation.watchPosition(
-                (pos) => {
-                    updateUserLocation(pos);
-                    if (!STATE.map.getBounds().contains([pos.coords.latitude, pos.coords.longitude])) {
-                         STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17);
-                    }
-                }, 
-                () => {
-                    showToast('持續定位失敗', 'error'); 
-                    if (STATE.geoWatcherId) navigator.geolocation.clearWatch(STATE.geoWatcherId);
-                    STATE.geoWatcherId = null;
-                    locIcon.innerText = 'my_location';
-                }, 
-                { timeout: 15000, enableHighAccuracy: true } 
-            );
+        async function fetchGraphQL(query, variables) {
+            try { 
+                const res = await fetch(CONFIG.IBUS_API, { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json', 'Origin': 'https://ibus.tbkc.gov.tw' }, 
+                    body: JSON.stringify({ query, variables })
+                });
+                return await res.json(); 
+            } catch (e) { throw e; }
         }
 
         async function refreshData(isAuto = false) { 
             if (!STATE.currentContext) return;
             const btnIcon = document.querySelector('#refresh-btn span');
             if (!isAuto && btnIcon) btnIcon.classList.add('spin-anim');
-            
             const { type, data } = STATE.currentContext;
             const content = document.getElementById('sb-content');
-            let refreshSuccess = false; 
-
-            if (type === 'bus') {
-                const arrivals = await getBusArrivals(data.id);
-                renderBusContent(arrivals, content);
-                if (arrivals) refreshSuccess = true;
-            } else if (type === 'bike') {
-                const info = await getBikeRealtime(data.station_no);
-                renderBikeContent(info, content);
-                if (info) refreshSuccess = true;
-            }
-
-            if (!isAuto && btnIcon) {
-                setTimeout(() => { 
-                    btnIcon.classList.remove('spin-anim'); 
-                    if (refreshSuccess) showToast('即時資料已更新', 'success'); 
-                    else showToast('資料更新失敗', 'error'); 
-                }, 600);
-            }
+            if (type === 'bus') renderBusContent(await getBusArrivals(data.id), content);
+            else renderBikeContent(await getBikeRealtime(data.station_no), content);
+            if (!isAuto && btnIcon) setTimeout(() => { btnIcon.classList.remove('spin-anim'); showToast('資料已更新', 'success'); }, 600);
         }
 
-        // --- Map & Data ---
         async function initMap() {
-            STATE.map = L.map('map', { zoomControl: false, maxZoom: 22, preferCanvas: true }).setView([22.6273, 120.3014], 17);
+            // [修正1] 更新預設座標為高雄車站附近
+            STATE.map = L.map('map', { 
+                zoomControl: false, maxZoom: 22, preferCanvas: true, wheelDebounceTime: 100 
+            }).setView([22.631442, 120.301890], 17);
+
             try {
                 const response = await fetch(CONFIG.SHORTBREAD_STYLE);
                 let style = preprocessStyle(await response.json());
@@ -447,31 +418,27 @@
                     maplibreGLOptions: { crossOrigin: 'anonymous', fadeDuration: 0, localIdeographFontFamily: "'Noto Sans TC', sans-serif" },
                     padding: 0.1, attribution: '&copy; OpenStreetMap'
                 }).addTo(STATE.map);
-            } catch (error) { console.error("Style error:", error); }
+            } catch (error) { console.error(error); }
 
             L.control.zoom({ position: 'bottomright' }).addTo(STATE.map);
             STATE.map.on('click', () => setSidebarState('hidden'));
 
-            const clusterOptions = (className) => ({
+            const clusterOptions = (className, colorClass) => ({
                 disableClusteringAtZoom: 17, showCoverageOnHover: false, maxClusterRadius: 60,
+                chunkedLoading: true, chunkInterval: 200, chunkDelay: 50,
+                updateWhenIdle: true, animate: true, 
+                spiderfyOnMaxZoom: true, removeOutsideVisibleBounds: true,
                 iconCreateFunction: (c) => L.divIcon({ 
-                    html: `<div>${c.getChildCount()}</div>`, className: `marker-cluster ${className}`, iconSize: [40, 40] 
+                    html: `<div class="cluster-content ${colorClass}">${c.getChildCount()}</div>`, 
+                    className: `marker-cluster ${className}`, 
+                    iconSize: [40, 40] 
                 })
             });
-            STATE.busCluster = L.markerClusterGroup(clusterOptions('marker-cluster-bus'));
-            STATE.bikeCluster = L.markerClusterGroup(clusterOptions('marker-cluster-ubike'));
+
+            STATE.busCluster = L.markerClusterGroup(clusterOptions('marker-cluster-bus', 'bg-bus'));
+            STATE.bikeCluster = L.markerClusterGroup(clusterOptions('marker-cluster-ubike', 'bg-ubike'));
             STATE.map.addLayer(STATE.busCluster);
             STATE.map.addLayer(STATE.bikeCluster);
-        }
-
-        async function fetchGraphQL(query) {
-            try {
-                const response = await fetch(CONFIG.IBUS_API, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json', 'Origin': 'https://ibus.tbkc.gov.tw' },
-                    body: JSON.stringify({ query })
-                });
-                return await response.json();
-            } catch (e) { throw e; }
         }
 
         async function fetchBusStationsGodMode() {
@@ -481,24 +448,20 @@
                 const allRoutes = listData.data.routes.edges;
                 const bigQueryBody = allRoutes.map(edge => `r_${edge.node.id}: route(xno: ${edge.node.id}, lang: "zh") { stations { edges { node { id name lat lon } } } }`).join('\n');
                 const result = await fetchGraphQL(`query GOD_MODE_FETCH { ${bigQueryBody} }`);
-                if (result.data) {
-                    Object.values(result.data).forEach(routeData => {
-                        routeData?.stations?.edges.forEach(e => {
-                            const s = e.node;
-                            if (!uniqueStations.has(s.id)) uniqueStations.set(s.id, s);
-                        });
-                    });
-                }
+                if (result.data) Object.values(result.data).forEach(r => r?.stations?.edges.forEach(e => uniqueStations.set(e.node.id, e.node)));
                 return Array.from(uniqueStations.values());
             } catch (e) { return []; }
         }
 
         async function loadBusData() {
-            updateLoading('正在載入公車站點 (2/3)');
             STATE.dataBus = await fetchBusStationsGodMode(); 
             const markers = STATE.dataBus.map(s => {
                 if(!s.lat || !s.lon) return null;
-                const marker = L.marker([s.lat, s.lon], { icon: L.divIcon({ className: 'custom-icon bus-icon', html: '<span class="material-icons-outlined text-lg">directions_bus</span>', iconSize: [30, 30] }) });
+                const marker = L.marker([s.lat, s.lon], { icon: L.divIcon({ 
+                    className: 'custom-icon bus-icon', 
+                    html: '<i class="material-icons-outlined" style="font-size:18px;">directions_bus</i>', 
+                    iconSize: [30, 30] 
+                }) });
                 marker.on('click', (e) => { L.DomEvent.stopPropagation(e); handleMarkerClick(marker, 'bus', s); });
                 STATE.markersMap.bus[s.id] = marker;
                 return marker;
@@ -507,162 +470,94 @@
         }
 
         async function loadBikeData() {
-            updateLoading('正在載入 YouBike 站點 (3/3)');
             try {
-                const res = await fetch(CONFIG.UBIKE_LIST);
-                const data = await res.json();
-                STATE.dataBike = data.filter(s => s.lat > 22.4 && s.lat < 23.0 && s.lng > 120.1 && s.lng < 120.8);
-                const markers = STATE.dataBike.map(s => {
-                    const marker = L.marker([s.lat, s.lng], { icon: L.divIcon({ className: 'custom-icon ubike-icon', html: '<span class="material-icons-round text-lg">pedal_bike</span>', iconSize: [30, 30] }) });
+                const data = (await (await fetch(CONFIG.UBIKE_LIST)).json()).filter(s => s.lat > 22.4 && s.lat < 23.0 && s.lng > 120.1 && s.lng < 120.8);
+                STATE.dataBike = data;
+                const markers = data.map(s => {
+                    const marker = L.marker([s.lat, s.lng], { icon: L.divIcon({ 
+                        className: 'custom-icon ubike-icon', 
+                        html: '<i class="material-icons-round" style="font-size:18px;">pedal_bike</i>', 
+                        iconSize: [30, 30] 
+                    }) });
                     marker.on('click', (e) => { L.DomEvent.stopPropagation(e); handleMarkerClick(marker, 'bike', s); });
                     STATE.markersMap.bike[s.station_no] = marker;
                     return marker;
                 }).filter(m => m);
                 STATE.bikeCluster.addLayers(markers);
-            } catch (e) { console.error(e); }
+            } catch (e) {}
         }
 
         function handleMarkerClick(marker, type, data) {
-            const lat = type === 'bus' ? data.lat : data.lat;
-            const lon = type === 'bus' ? data.lon : data.lng;
-            STATE.map.flyTo([lat, lon], STATE.map.getZoom(), { animate: true, duration: 0.8 });
+            STATE.map.flyTo(marker.getLatLng(), 18, { animate: true, duration: 0.8 });
             openSidebar(type, data);
         }
 
-        // --- Sidebar Logic ---
         function setSidebarState(newState) {
             const sb = document.getElementById('sidebar');
-            const isDesktop = window.innerWidth >= 768;
             STATE.sheetState = newState;
-
-            if (isDesktop) {
-                if (newState === 'hidden') {
-                    sb.classList.remove('active');
-                    document.body.classList.remove('sidebar-open');
-                    stopAutoRefresh();
-                } else {
-                    sb.classList.add('active');
-                    document.body.classList.add('sidebar-open');
-                }
-                sb.style.transform = '';
-                return;
-            }
-
-            // Mobile logic
-            sb.style.transition = 'transform 0.3s cubic-bezier(0.25, 1, 0.5, 1)';
-            const sbHeight = sb.offsetHeight; 
             
-            if (newState === 'full') {
-                sb.style.transform = `translateY(0px)`;
-            } else if (newState === 'half') {
-                const visibleHeight = window.innerHeight * 0.45;
-                const hiddenPart = sbHeight - visibleHeight;
-                const translateVal = Math.max(0, hiddenPart);
-                sb.style.transform = `translateY(${translateVal}px)`;
+            if (!isPortrait()) {
+                if (newState === 'hidden') { sb.classList.remove('active'); document.body.classList.remove('sidebar-open'); stopAutoRefresh(); }
+                else { sb.classList.add('active'); document.body.classList.add('sidebar-open'); }
             } else {
-                sb.style.transform = `translateY(110%)`;
-                stopAutoRefresh();
+                const h = sb.offsetHeight;
+                sb.style.transform = newState === 'full' ? `translateY(0px)` : (newState === 'half' ? `translateY(${Math.max(0, h - window.innerHeight * 0.45)}px)` : `translateY(110%)`);
+                if (newState === 'hidden') stopAutoRefresh();
             }
         }
 
         function initSidebarGestures() {
             const sidebar = document.getElementById('sidebar');
             const dragArea = document.getElementById('drag-area');
-            let startY = 0;
-            let currentY = 0;
-            let startTransformY = 0;
-            let isDragging = false;
-
-            function getCurrentTranslateY() {
-                const style = window.getComputedStyle(sidebar);
-                const matrix = new WebKitCSSMatrix(style.transform);
-                return matrix.m42;
-            }
-
+            let startY = 0, startTransformY = 0, isDragging = false;
+            
             dragArea.addEventListener('touchstart', (e) => {
-                if (window.innerWidth >= 768) return;
-                if (e.target.closest('button')) return;
-
-                startY = e.touches[0].clientY;
-                startTransformY = getCurrentTranslateY();
-                isDragging = true;
+                if (!isPortrait() || e.target.closest('button')) return;
+                startY = e.touches[0].clientY; 
+                startTransformY = (new WebKitCSSMatrix(window.getComputedStyle(sidebar).transform)).m42; 
+                isDragging = true; 
                 sidebar.style.transition = 'none';
             }, { passive: true });
 
             dragArea.addEventListener('touchmove', (e) => {
-                if (!isDragging || window.innerWidth >= 768) return;
-                currentY = e.touches[0].clientY;
-                const diff = currentY - startY;
-                let newY = startTransformY + diff;
-                if (newY < 0) newY = newY * 0.4; // Damping
+                if (!isDragging) return;
+                let newY = startTransformY + (e.touches[0].clientY - startY);
+                if (newY < 0) newY *= 0.4; 
                 sidebar.style.transform = `translateY(${newY}px)`;
             }, { passive: true });
 
             dragArea.addEventListener('touchend', (e) => {
-                if (!isDragging || window.innerWidth >= 768) return;
-                isDragging = false;
-                
-                const diff = currentY - startY;
-                const threshold = 60;
-
-                if (STATE.sheetState === 'half') {
-                    if (diff < -threshold) setSidebarState('full');
-                    else if (diff > threshold) setSidebarState('hidden');
-                    else setSidebarState('half');
-                } else if (STATE.sheetState === 'full') {
-                    if (diff > 300) { 
-                        setSidebarState('hidden');
-                    } else if (diff > threshold) { 
-                        setSidebarState('half'); 
-                    } else {
-                        setSidebarState('full'); 
-                    }
+                if (!isDragging) return; isDragging = false;
+                const diff = e.changedTouches[0].clientY - startY;
+                if (STATE.sheetState === 'full') {
+                    setSidebarState(diff > 150 ? (diff > 300 ? 'hidden' : 'half') : 'full');
                 } else {
-                    setSidebarState('hidden');
+                    setSidebarState(diff < -60 ? 'full' : (diff > 60 ? 'hidden' : 'half'));
                 }
             });
         }
 
         async function openSidebar(type, data) {
             STATE.currentContext = { type, data };
-            
             const content = document.getElementById('sb-content');
             const badge = document.getElementById('sb-badge');
-            const title = document.getElementById('sb-title');
-            const subtitle = document.getElementById('sb-subtitle');
-
+            document.getElementById('sb-title').innerText = type === 'bus' ? data.name : data.name_tw;
+            document.getElementById('sb-subtitle').innerText = type === 'bus' ? `ID: ${data.id}` : data.address_tw;
             content.innerHTML = `<div class="animate-pulse space-y-4"><div class="h-24 bg-gray-200 rounded-2xl"></div><div class="h-12 bg-gray-200 rounded-xl"></div></div>`;
-
-            if (type === 'bus') {
-                badge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold mb-2 bg-blue-100 text-blue-700';
-                badge.innerHTML = '<span class="material-icons-outlined text-sm mr-1">directions_bus</span> 公車';
-                title.innerText = data.name;
-                subtitle.innerText = `ID: ${data.id}`;
-                const arrivals = await getBusArrivals(data.id);
-                renderBusContent(arrivals, content);
-            } else {
-                badge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold mb-2 bg-amber-100 text-amber-700';
-                badge.innerHTML = '<span class="material-icons-round text-sm mr-1">pedal_bike</span> YouBike 2.0';
-                title.innerText = data.name_tw;
-                subtitle.innerText = data.address_tw;
-                const info = await getBikeRealtime(data.station_no);
-                renderBikeContent(info, content);
-            }
             
-            if (window.innerWidth < 768) {
-                if (STATE.sheetState !== 'full') setSidebarState('half');
-                else setSidebarState('full'); 
-            } else {
-                setSidebarState('full');
-            }
-            startAutoRefresh(); 
+            badge.className = `inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold mb-2 ${type === 'bus' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`;
+            badge.innerHTML = type === 'bus' ? '<span class="material-icons-outlined text-sm mr-1">directions_bus</span> 公車' : '<span class="material-icons-round text-sm mr-1">pedal_bike</span> YouBike 2.0';
+            
+            if (type === 'bus') renderBusContent(await getBusArrivals(data.id), content);
+            else renderBikeContent(await getBikeRealtime(data.station_no), content);
+            
+            setSidebarState(isPortrait() ? 'half' : 'active');
+            startAutoRefresh();
         }
 
         function renderBusContent(data, container) {
-            if (!data) { container.innerHTML = '<div class="p-4 bg-red-50 text-red-600 rounded-lg text-center text-sm">連線失敗 (CORS) 或 iBus 查詢錯誤</div>'; return; }
-            if (data.length === 0) { container.innerHTML = '<div class="p-8 text-center text-slate-400"><span class="material-icons-outlined text-4xl mb-2">bus_alert</span><p>無營運路線</p></div>'; return; }
-            
-            const stationId = STATE.currentContext.data.id; 
+            if (!data) return container.innerHTML = '<div class="p-4 bg-red-50 text-red-600 rounded-lg text-center text-sm">連線失敗</div>';
+            if (data.length === 0) return container.innerHTML = '<div class="p-8 text-center text-slate-400"><p>無營運路線</p></div>';
             let html = '<div class="space-y-3">';
             data.forEach(r => {
                 let timeHtml = `<span class="text-gray-400 font-bold text-sm">未發車</span>`;
@@ -670,44 +565,32 @@
                 if (r.isSuspended) timeHtml = `<span class="text-gray-500 text-sm">末班已過</span>`;
                 else if (r.etas?.[0]) {
                     const min = r.etas[0].etaTime;
-                    if (min <= 1) { timeHtml = `<span class="text-red-600 font-bold flex items-center text-sm"><span class="material-icons-round text-sm mr-1 animate-pulse">campaign</span>進站中</span>`; statusClass = 'bg-red-50 border-red-100 shadow-sm'; }
-                    else if (min <= 3) timeHtml = `<span class="text-red-500 font-bold text-sm">即將到站</span>`;
-                    else timeHtml = `<span class="text-blue-600 font-bold text-lg">${min} <span class="text-xs font-normal text-slate-500">分</span></span>`;
+                    if (min <= 1) { timeHtml = `<span class="text-red-600 font-bold text-sm">進站中</span>`; statusClass = 'bg-red-50 border-red-100'; }
+                    else timeHtml = `<span class="text-blue-600 font-bold text-lg">${min} <span class="text-xs text-slate-500">分</span></span>`;
                 } else if (r.comeTime) timeHtml = `<span class="text-slate-600 font-medium text-sm">${r.comeTime}</span>`;
-                
-                html += `
-                    <div onclick="confirmRedirect('${r.id}', '${r.name}', '${stationId}')" class="p-3 rounded-2xl border ${statusClass} flex items-center justify-between transition bg-white active:scale-95 cursor-pointer">
-                        <div class="flex-1 min-w-0 mr-3">
-                            <div class="flex items-center gap-2 flex-nowrap">
-                                <span class="text-lg font-bold text-slate-800 truncate min-w-0">${r.name}</span>
-                                <span class="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full flex-shrink-0 whitespace-nowrap">${r.dir}</span>
-                            </div>
-                        </div>
-                        <div class="text-right min-w-[80px]">${timeHtml}</div>
-                        <span class="material-icons-outlined text-slate-300 text-lg ml-2">chevron_right</span>
-                    </div>`;
+                html += `<div onclick="confirmRedirect('${r.id}', '${r.name}', '${STATE.currentContext.data.id}')" class="p-3 rounded-2xl border ${statusClass} flex justify-between items-center bg-white cursor-pointer active:scale-95 transition"><div class="flex-1 min-w-0 mr-3"><div class="flex items-center gap-2"><span class="text-lg font-bold text-slate-800 truncate">${r.name}</span><span class="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full flex-shrink-0">${r.dir}</span></div></div><div class="text-right">${timeHtml}</div></div>`;
             });
             container.innerHTML = html + '</div>';
         }
 
         function renderBikeContent(info, container) {
-            if (!info) { container.innerHTML = '<div class="p-4 bg-red-50 text-red-600 rounded-lg text-center">無法取得即時車位</div>'; return; }
-            const yb2 = info.available_spaces_detail.yb2;
-            const ybE = info.available_spaces_detail.eyb;
+            if (!info) return container.innerHTML = '<div class="p-4 bg-red-50 text-red-600 text-center">無法取得資料</div>';
+            const { yb2, eyb } = info.available_spaces_detail;
             const empty = info.empty_spaces;
             const time = new Date().toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit'});
             const getNumColor = (n) => n > 3 ? 'text-slate-800' : (n > 0 ? 'text-orange-600' : 'text-gray-300');
 
+            // [修正2] 修改 CSS class，移除 -bottom-3，改為 bottom-0 right-0，解決圖示偏下問題
             container.innerHTML = `
                 <div class="space-y-4">
                     <div class="grid grid-cols-2 gap-3">
                         <div class="bg-gradient-to-br from-amber-50 to-amber-100 p-4 rounded-3xl shadow-sm border border-amber-200 relative overflow-hidden flex flex-col justify-between h-28">
                             <div class="z-10"><span class="text-xs font-bold text-amber-700 uppercase tracking-wider block mb-1">一般車輛</span><div class="flex items-baseline"><span class="text-4xl font-black ${getNumColor(yb2)}">${yb2}</span><span class="text-xs text-amber-800 ml-1 font-medium">輛</span></div></div>
-                            <span class="material-icons-round absolute -right-3 -bottom-3 text-7xl text-amber-400 opacity-20">pedal_bike</span>
+                            <span class="material-icons-round absolute right-0 bottom-0 text-7xl text-amber-400 opacity-20">pedal_bike</span>
                         </div>
                         <div class="bg-gradient-to-br from-orange-50 to-orange-100 p-4 rounded-3xl shadow-sm border border-orange-200 relative overflow-hidden flex flex-col justify-between h-28">
-                            <div class="z-10"><div class="flex items-center justify-between mb-1"><span class="text-xs font-bold text-orange-700 uppercase tracking-wider">電輔車</span><span class="material-icons-round text-xs text-orange-600">bolt</span></div><div class="flex items-baseline"><span class="text-4xl font-black ${getNumColor(ybE)}">${ybE}</span><span class="text-xs text-orange-800 ml-1 font-medium">輛</span></div></div>
-                            <span class="material-icons-round absolute -right-3 -bottom-3 text-7xl text-orange-400 opacity-20">electric_bike</span>
+                            <div class="z-10"><div class="flex items-center justify-between mb-1"><span class="text-xs font-bold text-orange-700 uppercase tracking-wider">電輔車</span><span class="material-icons-round text-xs text-orange-600">bolt</span></div><div class="flex items-baseline"><span class="text-4xl font-black ${getNumColor(eyb)}">${eyb}</span><span class="text-xs text-orange-800 ml-1 font-medium">輛</span></div></div>
+                            <span class="material-icons-round absolute right-0 bottom-0 text-7xl text-orange-400 opacity-20">electric_bike</span>
                         </div>
                     </div>
                     <div class="bg-gradient-to-br from-emerald-50 to-teal-100 p-5 rounded-3xl shadow-sm border border-emerald-200 flex justify-between items-center relative overflow-hidden">
@@ -720,125 +603,49 @@
         }
 
         async function getBusArrivals(stationId) {
-            const qRoute = `query Q($ids:[Int!]!){stations(lang:"zh",ids:$ids){edges{node{... on Station{routes{edges{goBack node{id name}}}}}}}}`;
-            const qTime = `query T($t:[EstimateStationInput!]!){stationEstimates(targets:$t){edges{node{comeTime isSuspended etas{etaTime}}}}}`;
             try {
-                const r1 = await fetch(CONFIG.IBUS_API, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ query: qRoute, variables: { ids: [parseInt(stationId, 10)] } }) });
-                const j1 = await r1.json();
-                const routeEdges = j1?.data?.stations?.edges?.[0]?.node?.routes?.edges;
-                if (!routeEdges) return null; 
-                const targets = routeEdges.map(e => ({ xno: parseInt(e.node.id, 10), goBack: parseInt(e.goBack, 10), stationId: parseInt(stationId, 10) }));
-                const r2 = await fetch(CONFIG.IBUS_API, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ query: qTime, variables: { t: targets } }) });
-                const j2 = await r2.json();
-                const estimates = j2.data.stationEstimates.edges;
-                return routeEdges.map((e, i) => ({ id: e.node.id, name: e.node.name, dir: e.goBack === 1 ? '去程' : '返程', ...estimates[i]?.node }));
-            } catch (e) { return null; }
+                const j1 = await fetchGraphQL(`query Q($ids:[Int!]!){stations(lang:"zh",ids:$ids){edges{node{... on Station{routes{edges{goBack node{id name}}}}}}}}`, { ids: [parseInt(stationId)] });
+                const routeEdges = j1?.data?.stations?.edges?.[0]?.node?.routes?.edges || [];
+                if (!routeEdges.length) return [];
+                const targets = routeEdges.map(e => ({ xno: parseInt(e.node.id), goBack: parseInt(e.goBack), stationId: parseInt(stationId) }));
+                const j2 = await fetchGraphQL(`query T($t:[EstimateStationInput!]!){stationEstimates(targets:$t){edges{node{comeTime isSuspended etas{etaTime}}}}}`, { t: targets });
+                return routeEdges.map((e, i) => ({ id: e.node.id, name: e.node.name, dir: e.goBack === 1 ? '去程' : '返程', ...j2.data.stationEstimates.edges[i]?.node }));
+            } catch { return null; }
         }
+        async function getBikeRealtime(id) { try { return (await (await fetch(CONFIG.UBIKE_REALTIME, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ station_no: [id] }) })).json()).retVal?.data?.[0]; } catch { return null; } }
 
-        async function getBikeRealtime(id) {
-            try {
-                const res = await fetch(CONFIG.UBIKE_REALTIME, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ station_no: [id] }) });
-                const j = await res.json();
-                return j.retVal?.data?.[0];
-            } catch (e) { return null; }
-        }
-
-        const searchInput = document.getElementById('search-input');
-        const resultsBox = document.getElementById('search-results');
-        const searchClear = document.getElementById('search-clear');
-
-        function toggleClearBtn() {
-            if (searchInput.value.length > 0) searchClear.classList.remove('hidden');
-            else searchClear.classList.add('hidden');
-        }
-
-        searchInput.addEventListener('input', (e) => {
-            toggleClearBtn();
+        const searchInput = document.getElementById('search-input'), resultsBox = document.getElementById('search-results'), searchClear = document.getElementById('search-clear');
+        searchInput.addEventListener('input', (e) => { 
             const val = e.target.value.trim().toLowerCase();
-            if(val) doSearch(val);
-            else resultsBox.classList.remove('show');
+            searchClear.classList.toggle('hidden', val.length === 0);
+            if(val) doSearch(val); else resultsBox.classList.remove('show');
         });
-
-        searchClear.addEventListener('click', () => {
-            searchInput.value = '';
-            toggleClearBtn();
-            resultsBox.classList.remove('show');
-            searchInput.focus();
-        });
-
-        function calculateScore(item, key) {
-            const normalizedKey = key.toLowerCase();
-            const type = item.id ? 'bus' : 'bike'; 
-            let name, sub;
-            if (type === 'bus') { name = item.name; sub = item.id.toString(); } 
-            else { name = item.name_tw; sub = item.address_tw; }
-            const normalizedName = name.toLowerCase();
-            const normalizedSub = sub.toLowerCase();
-
-            let score = 0;
-            if (normalizedName === normalizedKey) score = 1000;
-            else if (normalizedName.startsWith(normalizedKey)) score = 800 + 100 - normalizedName.length; 
-            else if (normalizedName.includes(normalizedKey)) score = 500 + 50 - normalizedName.indexOf(normalizedKey); 
-            else if (normalizedSub.includes(normalizedKey)) score = 200 + 50 - normalizedSub.indexOf(normalizedKey); 
-            return score;
-        }
-
+        searchClear.addEventListener('click', () => { searchInput.value = ''; searchClear.classList.add('hidden'); resultsBox.classList.remove('show'); });
+        
         function doSearch(key) {
-            resultsBox.innerHTML = '';
-            const allResults = [];
-            STATE.dataBus.forEach(s => {
-                const score = calculateScore(s, key);
-                if (score > 0) allResults.push({ type: 'bus', data: s, score: score });
+            resultsBox.innerHTML = ''; const all = [];
+            [...STATE.dataBus, ...STATE.dataBike].forEach(s => {
+                const name = s.id ? s.name : s.name_tw; const sub = s.id ? s.id.toString() : s.address_tw;
+                if (name.includes(key) || sub.includes(key)) all.push({ data: s, type: s.id ? 'bus' : 'bike' });
             });
-            STATE.dataBike.forEach(s => {
-                const score = calculateScore(s, key);
-                if (score > 0) allResults.push({ type: 'bike', data: s, score: score });
+            const res = all.slice(0, 15);
+            if(!res.length) resultsBox.innerHTML = '<div class="p-4 text-center text-slate-400 text-sm">無結果</div>';
+            else res.forEach(r => {
+                const div = document.createElement('div');
+                div.className = 'p-3 flex items-center hover:bg-slate-50 cursor-pointer border-b border-gray-50';
+                div.innerHTML = `<div class="w-10 h-10 rounded-full ${r.type==='bus'?'bg-blue-100 text-blue-600':'bg-amber-100 text-amber-600'} flex items-center justify-center mr-3 shrink-0"><span class="material-icons-outlined text-lg">${r.type==='bus'?'directions_bus':'pedal_bike'}</span></div><div class="min-w-0"><div class="font-bold text-slate-700 text-sm truncate">${r.type==='bus'?r.data.name:r.data.name_tw}</div><div class="text-xs text-slate-400 truncate">${r.type==='bus'?'ID: '+r.data.id:r.data.address_tw}</div></div>`;
+                div.onclick = () => {
+                    resultsBox.classList.remove('show'); searchInput.value = r.type==='bus'?r.data.name:r.data.name_tw; searchClear.classList.remove('hidden');
+                    const cluster = r.type==='bus'?STATE.busCluster:STATE.bikeCluster;
+                    const marker = STATE.markersMap[r.type][r.type==='bus'?r.data.id:r.data.station_no];
+                    if(marker) cluster.zoomToShowLayer(marker, () => handleMarkerClick(marker, r.type, r.data));
+                    else { STATE.map.setView([r.type==='bus'?r.data.lat:r.data.lat, r.type==='bus'?r.data.lon:r.data.lng], 18); openSidebar(r.type, r.data); }
+                };
+                resultsBox.appendChild(div);
             });
-            allResults.sort((a, b) => b.score - a.score);
-            const finalResults = allResults.slice(0, 15); 
-            
-            if(finalResults.length === 0) resultsBox.innerHTML = '<div class="p-4 text-center text-slate-400 text-sm">找不到相關站點</div>'; 
-            else finalResults.forEach(r => appendResult(r.type, r.data)); 
             resultsBox.classList.add('show');
         }
-
-        function appendResult(type, data) {
-            const div = document.createElement('div');
-            const name = type === 'bus' ? data.name : data.name_tw;
-            const sub = type === 'bus' ? `ID: ${data.id}` : data.address_tw;
-            const icon = type === 'bus' ? 'directions_bus' : 'pedal_bike';
-            const color = type === 'bus' ? 'bg-blue-100 text-blue-600' : 'bg-amber-100 text-amber-600';
-            
-            div.className = 'p-3 flex items-center hover:bg-slate-50 cursor-pointer border-b border-gray-50 last:border-0 transition';
-            div.innerHTML = `<div class="w-10 h-10 rounded-full ${color} flex items-center justify-center mr-3 shrink-0"><span class="material-icons-outlined text-lg">${icon}</span></div><div class="min-w-0"><div class="font-bold text-slate-700 text-sm truncate">${name}</div><div class="text-xs text-slate-400 truncate">${sub}</div></div>`;
-            
-            div.onclick = () => {
-                resultsBox.classList.remove('show');
-                searchInput.value = name;
-                toggleClearBtn();
-                const id = type === 'bus' ? data.id : data.station_no;
-                const markerMap = type === 'bus' ? STATE.markersMap.bus : STATE.markersMap.bike;
-                const cluster = type === 'bus' ? STATE.busCluster : STATE.bikeCluster;
-                const lat = type === 'bus' ? data.lat : data.lat;
-                const lng = type === 'bus' ? data.lon : data.lng;
-
-                if (markerMap[id]) {
-                    cluster.zoomToShowLayer(markerMap[id], () => {
-                        openSidebar(type, data);
-                        STATE.map.panTo([lat, lng]); 
-                    });
-                } else {
-                    STATE.map.setView([lat, lng], 18);
-                    openSidebar(type, data);
-                }
-            };
-            resultsBox.appendChild(div);
-        }
-
-        document.addEventListener('click', (e) => {
-            const searchContainer = document.querySelector('.search-container');
-            if (!searchContainer.contains(e.target)) resultsBox.classList.remove('show');
-        });
+        document.addEventListener('click', (e) => { if (!document.querySelector('.search-container').contains(e.target)) resultsBox.classList.remove('show'); });
     </script>
 </body>
 </html>
