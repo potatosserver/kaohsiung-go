@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="author" content="卓稟鈞(AndrewCho) & Gemini">
+    <meta name="author" content="卓稟鈞(AndrewCho)">
     <meta name="description" content="一個專為高雄市的簡單、美觀且低流量的整合式大眾運輸搜尋器，提供快速查詢公車、捷運、輕軌與 YouBike 資訊功能，滿足即時需求。">
     <meta name="keywords" content="高雄市公車, 高雄捷運, 高雄輕軌, YouBike, 高雄交通, 即時資訊, 捷運, 輕軌, 公車, 紅線, 橘線, 環狀輕軌, Github, github.io" />
     <meta property="og:site_name" content="高雄交通智慧地圖" />
@@ -95,21 +95,11 @@
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
         ::-webkit-scrollbar-track { background: transparent; }
 
-        /* 新增：更新進度圈動畫 */
-        @property --angle {
-            syntax: "<angle>";
-            initial-value: 0deg;
-            inherits: false;
-        }
-        @keyframes countdown-ring {
-            from { --angle: 0deg; }
-            to { --angle: 360deg; }
-        }
-        #refresh-progress-ring {
-            /* 只需將 transparent 和 #3b82f6 的位置互換即可 */
-            background: conic-gradient(transparent var(--angle), #3b82f6 var(--angle));
-            display: none; /* 預設隱藏 */
-        }
+        /* 更新進度圈動畫 */
+        @property --angle { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
+        @keyframes countdown-ring { from { --angle: 0deg; } to { --angle: 360deg; } }
+        #refresh-progress-ring { background: conic-gradient(transparent var(--angle), #3b82f6 var(--angle)); display: none; }
+        #refresh-progress-ring.animate-ring { display: block; animation: countdown-ring 30s linear; }
     </style>
 </head>
 <body>
@@ -121,7 +111,6 @@
     <div id="iframe-modal" class="fixed inset-0 bg-white hidden flex flex-col"><div class="h-14 bg-white border-b flex items-center px-4 md:px-6 shadow-sm shrink-0"><button onclick="closeIframeModal()" class="text-slate-500 hover:text-slate-800 transition mr-4"><span class="material-icons-round">arrow_back</span></button><h3 id="iframe-title" class="text-lg font-bold truncate flex-1"></h3></div><iframe id="iframe-content" src="" allow="geolocation" sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals"></iframe></div>
     <div class="search-container"><div id="search-box"><span class="material-icons-outlined text-slate-400 mr-2">search</span><input type="text" id="search-input" placeholder="搜尋公車、捷運、YouBike..." class="flex-1 outline-none bg-transparent"><button id="search-clear" class="hidden p-1 text-slate-300 hover:text-slate-500 rounded-full transition mr-1 flex items-center justify-center"><span class="material-icons-round text-lg">cancel</span></button><div class="w-[1px] h-5 bg-gray-200 mx-1"></div><button class="p-2 text-slate-400 hover:text-blue-600 transition" onclick="locateUser()" title="定位"><span class="material-icons-outlined">my_location</span></button></div><div id="search-results"></div></div>
     <div id="sidebar" class="bg-slate-50"><div id="sidebar-header" class="cursor-grab active:cursor-grabbing"><div id="drag-area"><div class="w-full flex justify-center pt-3 pb-1"><div class="w-12 h-1.5 bg-gray-300 rounded-full"></div></div></div><div class="px-6 py-4 border-b flex justify-between items-start"><div class="flex-1 min-w-0 pr-2"><div id="sb-badge" class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold mb-2 transition-colors bg-gray-100"></div><h2 id="sb-title" class="text-2xl font-bold leading-tight truncate"></h2><div class="flex items-center mt-1 text-slate-500"><span class="material-icons-outlined text-sm mr-1">place</span><p id="sb-subtitle" class="text-sm truncate"></p></div></div>
-        <!-- 修改：更新按鈕結構 -->
         <div id="refresh-container" class="relative w-10 h-10">
             <div id="refresh-progress-ring" class="absolute inset-[-3px] rounded-full z-0"></div>
             <button id="refresh-btn" onclick="refreshData()" class="relative w-10 h-10 flex items-center justify-center bg-slate-50 text-slate-500 hover:bg-blue-50 hover:text-blue-600 rounded-full transition shadow-sm border z-10" title="更新即時資料">
@@ -140,10 +129,15 @@
         const LOCATE_ICON_ELEMENT = document.querySelector('#search-box button:last-child span');
 
         window.onload = async () => {
+            // *** 修改點 1 ***: 在 onload 開始時就檢查參數
+            const params = new URLSearchParams(window.location.search);
+            const hasTargetParam = params.has('bus') || params.has('youbike') || params.has('metro');
+
             initMap();
             initSidebarGestures();
             initHistoryListener(); 
-            initialLocate(); 
+            // *** 修改點 2 ***: 根據有無參數決定是否移動地圖
+            initialLocate(!hasTargetParam); // 如果有參數，傳入 false，不移動地圖
             await Promise.all([ loadBusData(), loadBikeData(), loadMetroLrtData() ]);
             startContinuousGeolocation(); 
             handleUrlParameters();
@@ -188,7 +182,21 @@
         }
         
         // --- 定位功能 ---
-        function initialLocate() { if (!navigator.geolocation) return; navigator.geolocation.getCurrentPosition( (pos) => { updateUserLocation(pos); STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17, { animate: true, duration: 1.2 }); }, (err) => {}, { timeout: 8000, enableHighAccuracy: true } ); }
+        // *** 修改點 3 ***: 增加 moveToUser 參數
+        function initialLocate(moveToUser = true) {
+            if (!navigator.geolocation) return;
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    updateUserLocation(pos);
+                    // 只有在 moveToUser 為 true 時才移動地圖
+                    if (moveToUser) {
+                        STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17, { animate: true, duration: 1.2 });
+                    }
+                },
+                (err) => {},
+                { timeout: 8000, enableHighAccuracy: true }
+            );
+        }
         function updateUserLocation(pos) { const { latitude, longitude, accuracy } = pos.coords; if (STATE.userAccuracy) STATE.map.removeLayer(STATE.userAccuracy); if (STATE.userMarker) STATE.map.removeLayer(STATE.userMarker); STATE.userAccuracy = L.circle([latitude, longitude], { radius: accuracy, color: '#3b82f6', fillOpacity: 0.1, weight: 1, interactive: false }).addTo(STATE.map); STATE.userMarker = L.marker([latitude, longitude], { icon: L.divIcon({ className: 'bg-blue-600 border-2 border-white rounded-full shadow-lg', iconSize: [14, 14] }) }).addTo(STATE.map); }
         function startContinuousGeolocation() { if (!navigator.geolocation || STATE.geoWatcherId) return; LOCATE_ICON_ELEMENT.innerText = 'gps_fixed'; const s = (pos) => { updateUserLocation(pos); }; const e = (err) => { LOCATE_ICON_ELEMENT.innerText = 'my_location'; if(STATE.geoWatcherId) { navigator.geolocation.clearWatch(STATE.geoWatcherId); STATE.geoWatcherId = null; } }; STATE.geoWatcherId = navigator.geolocation.watchPosition( s, e, { timeout: 15000, enableHighAccuracy: true, maximumAge: 0 } ); }
         function locateUser() { if (!navigator.geolocation) return showToast('瀏覽器不支援定位', 'error'); LOCATE_ICON_ELEMENT.classList.add('spin-anim'); navigator.geolocation.getCurrentPosition( (pos) => { LOCATE_ICON_ELEMENT.classList.remove('spin-anim'); updateUserLocation(pos); STATE.map.flyTo(STATE.userMarker.getLatLng(), 18, { animate: true, duration: 0.8 }); showToast('地圖已重新定位'); if (!STATE.geoWatcherId) startContinuousGeolocation(); }, (err) => { LOCATE_ICON_ELEMENT.classList.remove('spin-anim'); showToast('無法取得您的位置', 'error'); }, { timeout: 8000, enableHighAccuracy: true } ); }
