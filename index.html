@@ -129,18 +129,18 @@
         const LOCATE_ICON_ELEMENT = document.querySelector('#search-box button:last-child span');
 
         window.onload = async () => {
-            // *** 修改點 1 ***: 在 onload 開始時就檢查參數
             const params = new URLSearchParams(window.location.search);
             const hasTargetParam = params.has('bus') || params.has('youbike') || params.has('metro');
 
             initMap();
             initSidebarGestures();
             initHistoryListener(); 
-            // *** 修改點 2 ***: 根據有無參數決定是否移動地圖
-            initialLocate(!hasTargetParam); // 如果有參數，傳入 false，不移動地圖
+            initialLocate(!hasTargetParam); // *** 修改點 ***: 如果有參數，則不移動地圖
+            startContinuousGeolocation(); // *** 修改點 ***: 無論如何都持續在背景定位
+            
             await Promise.all([ loadBusData(), loadBikeData(), loadMetroLrtData() ]);
-            startContinuousGeolocation(); 
             handleUrlParameters();
+
             const loading = document.getElementById('loading-screen');
             loading.style.opacity = '0';
             loading.classList.remove('visible');
@@ -182,28 +182,60 @@
         }
         
         // --- 定位功能 ---
-        // *** 修改點 3 ***: 增加 moveToUser 參數
         function initialLocate(moveToUser = true) {
             if (!navigator.geolocation) return;
-            navigator.geolocation.getCurrentPosition(
-                (pos) => {
-                    updateUserLocation(pos);
-                    // 只有在 moveToUser 為 true 時才移動地圖
-                    if (moveToUser) {
-                        STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17, { animate: true, duration: 1.2 });
-                    }
-                },
-                (err) => {},
-                { timeout: 8000, enableHighAccuracy: true }
-            );
+            navigator.geolocation.getCurrentPosition((pos) => {
+                updateUserLocation(pos);
+                if (moveToUser) {
+                    STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17, { animate: true, duration: 1.2 });
+                }
+            }, (err) => {}, { timeout: 8000, enableHighAccuracy: true });
         }
         function updateUserLocation(pos) { const { latitude, longitude, accuracy } = pos.coords; if (STATE.userAccuracy) STATE.map.removeLayer(STATE.userAccuracy); if (STATE.userMarker) STATE.map.removeLayer(STATE.userMarker); STATE.userAccuracy = L.circle([latitude, longitude], { radius: accuracy, color: '#3b82f6', fillOpacity: 0.1, weight: 1, interactive: false }).addTo(STATE.map); STATE.userMarker = L.marker([latitude, longitude], { icon: L.divIcon({ className: 'bg-blue-600 border-2 border-white rounded-full shadow-lg', iconSize: [14, 14] }) }).addTo(STATE.map); }
         function startContinuousGeolocation() { if (!navigator.geolocation || STATE.geoWatcherId) return; LOCATE_ICON_ELEMENT.innerText = 'gps_fixed'; const s = (pos) => { updateUserLocation(pos); }; const e = (err) => { LOCATE_ICON_ELEMENT.innerText = 'my_location'; if(STATE.geoWatcherId) { navigator.geolocation.clearWatch(STATE.geoWatcherId); STATE.geoWatcherId = null; } }; STATE.geoWatcherId = navigator.geolocation.watchPosition( s, e, { timeout: 15000, enableHighAccuracy: true, maximumAge: 0 } ); }
-        function locateUser() { if (!navigator.geolocation) return showToast('瀏覽器不支援定位', 'error'); LOCATE_ICON_ELEMENT.classList.add('spin-anim'); navigator.geolocation.getCurrentPosition( (pos) => { LOCATE_ICON_ELEMENT.classList.remove('spin-anim'); updateUserLocation(pos); STATE.map.flyTo(STATE.userMarker.getLatLng(), 18, { animate: true, duration: 0.8 }); showToast('地圖已重新定位'); if (!STATE.geoWatcherId) startContinuousGeolocation(); }, (err) => { LOCATE_ICON_ELEMENT.classList.remove('spin-anim'); showToast('無法取得您的位置', 'error'); }, { timeout: 8000, enableHighAccuracy: true } ); }
+        
+        // *** 修改點 ***: 全面更新 locateUser 函式以符合新流程
+        function locateUser() {
+            if (!navigator.geolocation) {
+                return showToast('瀏覽器不支援定位', 'error');
+            }
+            LOCATE_ICON_ELEMENT.classList.add('spin-anim');
+
+            // 步驟 1: 如果有舊位置，先飛過去
+            if (STATE.userMarker) {
+                STATE.map.flyTo(STATE.userMarker.getLatLng(), 18, {
+                    animate: true,
+                    duration: 0.8
+                });
+            }
+
+            // 步驟 2 & 3: 請求新位置，成功後再飛一次以校正
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    updateUserLocation(pos);
+                    STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 18, {
+                        animate: true,
+                        duration: 0.8
+                    });
+                    
+                    LOCATE_ICON_ELEMENT.classList.remove('spin-anim');
+                    showToast('已重新定位到您的目前位置', 'success');
+
+                    if (!STATE.geoWatcherId) {
+                        startContinuousGeolocation();
+                    }
+                },
+                (err) => {
+                    LOCATE_ICON_ELEMENT.classList.remove('spin-anim');
+                    showToast('無法取得您的即時位置', 'error');
+                },
+                { timeout: 8000, enableHighAccuracy: true }
+            );
+        }
 
         async function refreshData(isAuto = false) { 
             if (!STATE.currentContext) return;
-            stopAutoRefresh(); // 停止舊的計時器
+            stopAutoRefresh(); 
             const btnIcon = document.querySelector('#refresh-btn span');
             btnIcon.classList.add('spin-anim');
             const { type, data } = STATE.currentContext; const c = document.getElementById('sb-content'); let s = false; 
@@ -213,12 +245,9 @@
             
             setTimeout(() => {
                 btnIcon.classList.remove('spin-anim');
-                if (isAuto) {
-                    if(s) showToast('即時資料已自動更新', 'success');
-                } else {
-                    if(s) showToast('即時資料已更新', 'success'); else showToast('資料更新失敗', 'error');
-                }
-                startAutoRefresh(); // 無論成功失敗，都重新開始新的30秒計時
+                if (isAuto) { if(s) showToast('即時資料已自動更新', 'success'); } 
+                else { if(s) showToast('即時資料已更新', 'success'); else showToast('資料更新失敗', 'error'); }
+                startAutoRefresh();
             }, 600);
         }
 
