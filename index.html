@@ -90,7 +90,15 @@
         #nav-modal.hidden, #iframe-modal.hidden { opacity: 0; pointer-events: none; }
         #nav-modal:not(.hidden), #iframe-modal:not(.hidden) { opacity: 1; pointer-events: auto; }
         #iframe-modal { z-index: 5000; }
-        #iframe-content { width: 100%; flex-grow: 1; border: none; }
+
+        /* Iframe 修正 */
+        #iframe-content {
+            width: 100%;
+            flex-grow: 1;
+            border: none;
+            min-height: 0; /* << 新增這一行來修復變形問題 */
+        }
+        
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
         ::-webkit-scrollbar-track { background: transparent; }
@@ -102,7 +110,7 @@
     <div id="loading-screen" class="visible"><div class="loader mb-4"></div><h2 class="text-xl font-bold text-slate-800">高雄交通智慧地圖</h2><p id="loading-text" class="text-sm text-slate-500 mt-2">系統初始化中 (1/4)</p></div>
     <div id="toast-container"><div id="toast-message" class="toast-content"><span id="toast-icon" class="material-icons-round text-lg">info</span><span id="toast-text"></span></div></div>
     <div id="nav-modal" class="fixed inset-0 z-[5000] flex items-center justify-center bg-black/40 backdrop-blur-sm hidden p-4" onclick="handleModalClick(event)"><div class="bg-white rounded-3xl shadow-2xl p-6 w-full max-w-sm" onclick="event.stopPropagation()"><div class="flex items-center gap-3 mb-4"><div class="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center shrink-0"><span class="material-icons-round text-xl">directions_bus</span></div><div><h3 class="text-lg font-bold text-slate-800">查看路線動態</h3><p class="text-sm text-slate-500">將開啟內嵌動態頁面</p></div></div><p class="text-slate-600 mb-6">是否查看 <span id="nav-route-name" class="font-bold text-blue-600"></span> 的詳細動態？</p><div class="flex gap-3"><button onclick="cancelRedirect()" class="flex-1 py-3 px-4 rounded-xl bg-gray-100 font-bold hover:bg-gray-200 transition">取消</button><button onclick="doRedirect()" class="flex-1 py-3 px-4 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition">前往</button></div></div></div>
-    <div id="iframe-modal" class="fixed inset-0 bg-white hidden flex-col"><div class="h-14 bg-white border-b flex items-center px-4 md:px-6 shadow-sm shrink-0"><button onclick="closeIframeModal()" class="text-slate-500 hover:text-slate-800 transition mr-4"><span class="material-icons-round">arrow_back</span></button><h3 id="iframe-title" class="text-lg font-bold truncate flex-1"></h3></div><iframe id="iframe-content" src="" allow="geolocation" sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals"></iframe></div>
+    <div id="iframe-modal" class="fixed inset-0 bg-white hidden flex flex-col"><div class="h-14 bg-white border-b flex items-center px-4 md:px-6 shadow-sm shrink-0"><button onclick="closeIframeModal()" class="text-slate-500 hover:text-slate-800 transition mr-4"><span class="material-icons-round">arrow_back</span></button><h3 id="iframe-title" class="text-lg font-bold truncate flex-1"></h3></div><iframe id="iframe-content" src="" allow="geolocation" sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals"></iframe></div>
     <div class="search-container"><div id="search-box"><span class="material-icons-outlined text-slate-400 mr-2">search</span><input type="text" id="search-input" placeholder="搜尋公車、捷運、YouBike..." class="flex-1 outline-none bg-transparent"><button id="search-clear" class="hidden p-1 text-slate-300 hover:text-slate-500 rounded-full transition mr-1 flex items-center justify-center"><span class="material-icons-round text-lg">cancel</span></button><div class="w-[1px] h-5 bg-gray-200 mx-1"></div><button class="p-2 text-slate-400 hover:text-blue-600 transition" onclick="locateUser()" title="定位"><span class="material-icons-outlined">my_location</span></button></div><div id="search-results"></div></div>
     <div id="sidebar" class="bg-slate-50"><div id="sidebar-header" class="cursor-grab active:cursor-grabbing"><div id="drag-area"><div class="w-full flex justify-center pt-3 pb-1"><div class="w-12 h-1.5 bg-gray-300 rounded-full"></div></div></div><div class="px-6 py-4 border-b flex justify-between items-start"><div class="flex-1 min-w-0 pr-2"><div id="sb-badge" class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold mb-2 transition-colors bg-gray-100"></div><h2 id="sb-title" class="text-2xl font-bold leading-tight truncate"></h2><div class="flex items-center mt-1 text-slate-500"><span class="material-icons-outlined text-sm mr-1">place</span><p id="sb-subtitle" class="text-sm truncate"></p></div></div><div class="flex flex-col items-end"><button id="refresh-btn" onclick="refreshData()" class="w-10 h-10 flex items-center justify-center bg-slate-50 text-slate-500 hover:bg-blue-50 hover:text-blue-600 rounded-full transition shadow-sm border" title="更新即時資料"><span class="material-icons-round text-xl">refresh</span></button><span id="sb-refresh-countdown" class="text-xs text-slate-400 mt-1 h-4"></span></div></div></div><div id="sb-content" class="bg-slate-50 p-4 space-y-3 pb-safe rounded-b-[28px]"></div></div>
     <div id="map"></div>
@@ -204,7 +212,7 @@
         function handleMarkerClick(marker, type, data) { openSidebar(type, data); }
 
         // --- Sidebar UI 與手勢 ---
-        function toggleSidebarUI(show) { const sb = document.getElementById('sidebar'); const isLandscape = window.innerWidth > window.innerHeight; if (isLandscape) { sb.classList.toggle('active', show); } else { sb.style.height = show ? '60vh' : '0px'; sb.classList.toggle('active', show); } document.body.classList.toggle('sidebar-open', show); if (!show) { stopAutoRefreshAndCountdown(); STATE.currentContext = null; } }
+        function toggleSidebarUI(show) { const sb = document.getElementById('sidebar'); const isLandscape = window.innerWidth > window.innerHeight; if (isLandscape) { sb.classList.toggle('active', show); } else { sb.style.height = show ? '60vh' : '0px'; sb.classList.toggle('active', show); } document.body.classList.toggle('sidebar-open', show); if (!show) { stopAutoRefreshAndCountdown(); STATE.currentContext = null; if(new URLSearchParams(window.location.search).toString() !== '') history.replaceState(null, '', window.location.pathname); } }
         function initSidebarGestures() { const sbh = document.getElementById('sidebar-header'), sb = document.getElementById('sidebar'); let sy=0, sh=0, d=false; const isl=()=>window.innerWidth > window.innerHeight; sbh.addEventListener('touchstart',(e)=>{if(isl()||!sb.classList.contains('active'))return; d=true; sy=e.touches[0].clientY; sh=sb.offsetHeight; sb.style.transition='none';},{passive:true}); sbh.addEventListener('touchmove',(e)=>{if(!d||isl())return; const ty=e.touches[0].clientY; const dy=sy-ty; let nh=sh+dy; if(nh<0)nh=0; sb.style.height=`${nh}px`;},{passive:true}); sbh.addEventListener('touchend',(e)=>{if(!d||isl())return; d=false; sb.style.transition='height 0.4s cubic-bezier(0.25, 1, 0.5, 1)'; if (sb.offsetHeight < sh * 0.7) history.back(); else sb.style.height = `${sh}px`; });}
         
         async function openSidebar(type, data) {
@@ -264,7 +272,6 @@
             }
 
             if (stationData && marker) {
-                // 延遲一點執行，確保地圖和圖層都已完全渲染
                 setTimeout(() => {
                     cluster.zoomToShowLayer(marker, () => openSidebar(type, stationData));
                 }, 500);
