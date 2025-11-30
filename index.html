@@ -52,8 +52,7 @@
         .line-bg-O { background-color: #ff8400; }
         .line-bg-C { background-color: #16a34a; }
 
-        .metro-icon { font-weight: bold; font-size: 12px; line-height: 26px; text-align: center; color: black; }
-        .line-bg-R .metro-icon { color: white; } /* 紅色背景用白色字 */
+        .metro-icon { font-weight: bold; font-size: 12px; line-height: 26px; text-align: center; color: white; } /* 改回白色 */
 
         /* --- 聚合圖示顏色 --- */
         .marker-cluster div { color: white !important; border-radius: 50%; width: 30px; height: 30px; margin-left: 5px; margin-top: 5px; text-align: center; line-height: 30px; font-weight: bold; }
@@ -153,7 +152,7 @@
 
     <script>
         const CONFIG = { UBIKE_LIST: 'https://apis.youbike.com.tw/json/station-min-yb2.json', UBIKE_REALTIME: 'https://apis.youbike.com.tw/tw2/parkingInfo', IBUS_API: 'https://ibus.tbkc.gov.tw/ibus/graphql', TRACKER_BASE: 'https://kaohsiung-live-bus.pages.dev/?page=tracker', PROXY_URL: 'https://corsproxy.io/?', METRO_STATIONS: 'https://traffic.tbkc.gov.tw/api/metro/stations', LRT_STATIONS: 'https://traffic.tbkc.gov.tw/api/lrts', METRO_LIVE: 'https://traffic.tbkc.gov.tw/api/metro/live-boards?language=zh-TW', LRT_LIVE: 'https://traffic.tbkc.gov.tw/api/lrts/live-boards?language=zh-TW' };
-        const STATE = { map: null, busCluster: null, bikeCluster: null, metroRCluster: null, metroOCluster: null, lrtCluster: null, dataBus: [], dataBike: [], dataMetro: [], markersMap: { bus: {}, bike: {}, metro: {} }, currentContext: null, pendingRouteId: null, pendingStationId: null, autoRefreshTimer: null, userMarker: null, userAccuracy: null, geoWatcherId: null, metroLrtLiveCache: null, metroLrtLiveCacheTime: 0, settings: {} };
+        const STATE = { map: null, busCluster: null, bikeCluster: null, metroRCluster: null, metroOCluster: null, lrtCluster: null, dataBus: [], dataBike: [], dataMetro: [], markersMap: { bus: {}, bike: {}, metro: {} }, currentContext: null, pendingRouteId: null, pendingStationId: null, autoRefreshTimer: null, userMarker: null, userAccuracy: null, geoWatcherId: null, metroLrtLiveCache: null, metroLrtLiveCacheTime: 0, settings: {}, markersCreated: { bus: false, bike: false, metro: false } };
         const LOCATE_ICON_ELEMENT = document.querySelector('#search-box button:last-child span');
         const DEFAULT_SETTINGS = { bus: true, bike: true, metroR: true, metroO: true, lrt: true };
 
@@ -175,6 +174,10 @@
                 loadPromises.push(loadMetroLrtData());
             }
             await Promise.all(loadPromises);
+
+            if (STATE.settings.bus) createBusMarkers();
+            if (STATE.settings.bike) createBikeMarkers();
+            if (STATE.settings.metroR || STATE.settings.metroO || STATE.settings.lrt) createMetroLrtMarkers();
             
             handleUrlParameters();
             applySettings();
@@ -186,7 +189,12 @@
             if ('serviceWorker' in navigator) navigator.serviceWorker.register('./service-worker.js').catch(err => console.error('SW reg failed:', err));
         };
 
-        function updateLoading(txt) { document.getElementById('loading-text').innerText = txt; }
+        function updateLoading(txt) {
+            const loadingTextElement = document.getElementById('loading-text');
+            if (loadingTextElement) {
+                loadingTextElement.innerText = txt;
+            }
+        }
         function showToast(msg, type = 'info') { const c = document.getElementById('toast-container'), t = document.getElementById('toast-text'), i = document.getElementById('toast-icon'); t.innerText = msg; if (type === 'error') { i.innerText = 'error'; i.className = 'material-icons-round text-red-500 text-xl'; } else if (type === 'success') { i.innerText = 'check_circle'; i.className = 'material-icons-round text-green-500 text-xl'; } else { i.innerText = 'info'; i.className = 'material-icons-round text-blue-500 text-xl'; } c.classList.add('show'); if (window.toastTimeout) clearTimeout(window.toastTimeout); window.toastTimeout = setTimeout(() => { c.classList.remove('show'); }, 3000); }
 
         function initHistoryListener() { window.addEventListener('popstate', (e) => { const nm = document.getElementById('nav-modal'), im = document.getElementById('iframe-modal'), sb = document.getElementById('sidebar'); if (!im.classList.contains('hidden')) { im.classList.add('hidden'); im.querySelector('iframe').src = ''; } else if (!nm.classList.contains('hidden')) { nm.classList.add('hidden'); } else if (sb.classList.contains('active')) { toggleSidebarUI(false); } }); }
@@ -256,7 +264,7 @@
         }
 
         function initMap() {
-            STATE.map = L.map('map', { zoomControl: false, preferCanvas: true }).setView([22.631442, 120.301890], 13);
+            STATE.map = L.map('map', { zoomControl: false }).setView([22.631442, 120.301890], 13);
             L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(STATE.map);
             STATE.map.on('click', () => { if (document.getElementById('sidebar').classList.contains('active')) history.back(); });
             const o = { disableClusteringAtZoom: 17, showCoverageOnHover: false, maxClusterRadius: 60 };
@@ -271,38 +279,14 @@
         const fetchWithProxy = (url) => { const p = CONFIG.PROXY_URL + encodeURIComponent(url); return fetch(p).then(res => { if (!res.ok) throw new Error(`API Fail: ${res.status}`); return res.json(); }); };
         async function fetchGraphQL(q) { try { const r = await fetch(CONFIG.IBUS_API, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Origin': 'https://ibus.tbkc.gov.tw', 'Referer': 'https://ibus.tbkc.gov.tw/' }, body: JSON.stringify({ query:q }) }); if (!r.ok) throw new Error(`HTTP ${r.status}`); return await r.json(); } catch (e) { throw e; } }
         async function fetchBusStationsGodMode() { const u = new Map(); try { const lq=`query { routes(lang: "zh") { edges { node { id name } } } }`; const ld=await fetchGraphQL(lq); const ar=ld.data.routes.edges; const bqb=ar.map(e=>`r_${e.node.id}: route(xno: ${e.node.id}, lang: "zh") { stations { edges { node { id name lat lon } } } }`).join('\n'); const gq=`query{${bqb}}`; const rs=await fetchGraphQL(gq); if (rs.errors) throw new Error("GQL Error"); if (rs.data) Object.values(rs.data).forEach(rd=>{ if(rd&&rd.stations)rd.stations.edges.forEach(e=>{ const s=e.node; if(!u.has(s.id)&&s.lat&&s.lon)u.set(s.id,{id:s.id,name:s.name,lat:s.lat,lon:s.lon}); }); }); return Array.from(u.values()); } catch (e) { updateLoading("💥 公車資料載入失敗"); return []; } }
-        async function loadBusData() { if(STATE.dataBus.length > 0) return; updateLoading('載入公車站點'); STATE.dataBus = await fetchBusStationsGodMode(); const m = STATE.dataBus.map(s => { const marker = L.marker([s.lat, s.lon], { icon: L.divIcon({ className: 'custom-icon bus-icon', html: '<span class="material-icons-outlined text-lg">directions_bus</span>', iconSize: [30, 30] }) }); marker.on('click', (e) => { L.DomEvent.stopPropagation(e); handleMarkerClick(marker, 'bus', s); }); STATE.markersMap.bus[s.id] = marker; return marker; }); STATE.busCluster.addLayers(m); }
-        async function loadBikeData() { if(STATE.dataBike.length > 0) return; updateLoading('載入YouBike站點'); try { const res = await fetch(CONFIG.UBIKE_LIST); const data = await res.json(); STATE.dataBike = data.filter(s => s.lat > 22.4 && s.lng > 120.1); const m = STATE.dataBike.map(s => { const marker = L.marker([s.lat, s.lng], { icon: L.divIcon({ className: 'custom-icon ubike-icon', html: '<span class="material-icons-round text-lg text-black">pedal_bike</span>', iconSize: [30, 30] }) }); marker.on('click', (e) => { L.DomEvent.stopPropagation(e); handleMarkerClick(marker, 'bike', s); }); STATE.markersMap.bike[s.station_no] = marker; return marker; }); STATE.bikeCluster.addLayers(m); } catch (e) {} }
         
-        async function loadMetroLrtData() {
-            if(STATE.dataMetro.length > 0) return;
-            updateLoading('載入捷運輕軌站點');
-            try {
-                const [metro, lrt] = await Promise.all([fetchWithProxy(CONFIG.METRO_STATIONS), fetchWithProxy(CONFIG.LRT_STATIONS)]);
-                const all = [];
-                (metro??[]).forEach(s => { const lon = s.position?.lng ?? s.position?.lon; if (s.id && lon) all.push({ id: s.id, name: s.name, lat: s.position.lat, lon: lon }); });
-                (lrt??[]).forEach(s => { if (s.id && s.position?.lng) all.push({ id: s.id, name: s.name, lat: s.position.lat, lon: s.position.lng }); });
-                STATE.dataMetro = all;
-
-                const mR = [], mO = [], mC = [];
-                STATE.dataMetro.forEach(s => {
-                    const l = s.id.charAt(0).toUpperCase();
-                    const i = L.divIcon({className:`custom-icon metro-icon line-bg-${l}`, html:`<b>${l}</b>`, iconSize:[30,30]});
-                    const marker = L.marker([s.lat, s.lon], {icon: i});
-                    marker.on('click', (e) => { L.DomEvent.stopPropagation(e); handleMarkerClick(marker,'metro',s); });
-                    STATE.markersMap.metro[s.id] = marker;
-                    // *** 修正點 ***: 不再檢查 settings，將所有 marker 都創建並放入對應的 cluster
-                    if(l==='R') mR.push(marker);
-                    else if(l==='O') mO.push(marker);
-                    else if(l==='C') mC.push(marker);
-                });
-                STATE.metroRCluster.addLayers(mR);
-                STATE.metroOCluster.addLayers(mO);
-                STATE.lrtCluster.addLayers(mC);
-            } catch (e) {
-                updateLoading("💥 捷運輕軌資料載入失敗");
-            }
-        }
+        async function loadBusData() { if(STATE.dataBus.length > 0) return; updateLoading('載入公車站點'); STATE.dataBus = await fetchBusStationsGodMode(); }
+        async function loadBikeData() { if(STATE.dataBike.length > 0) return; updateLoading('載入YouBike站點'); try { const res = await fetch(CONFIG.UBIKE_LIST); const data = await res.json(); STATE.dataBike = data.filter(s => s.lat > 22.4 && s.lng > 120.1); } catch (e) {} }
+        async function loadMetroLrtData() { if (STATE.dataMetro.length > 0) return; updateLoading('載入捷運輕軌站點'); try { const [metro, lrt] = await Promise.all([fetchWithProxy(CONFIG.METRO_STATIONS), fetchWithProxy(CONFIG.LRT_STATIONS)]); const all = []; (metro??[]).forEach(s => { const lon = s.position?.lng ?? s.position?.lon; if (s.id && lon) all.push({ id: s.id, name: s.name, lat: s.position.lat, lon: lon }); }); (lrt??[]).forEach(s => { if (s.id && s.position?.lng) all.push({ id: s.id, name: s.name, lat: s.position.lat, lon: s.position.lng }); }); STATE.dataMetro = all; } catch (e) { updateLoading("💥 捷運輕軌資料載入失敗"); } }
+        
+        function createBusMarkers() { if (STATE.markersCreated.bus) return; const markers = STATE.dataBus.map(s => { const marker = L.marker([s.lat, s.lon], { icon: L.divIcon({ className: 'custom-icon bus-icon', html: '<span class="material-icons-outlined text-lg">directions_bus</span>', iconSize: [30, 30] }) }); marker.on('click', (e) => { L.DomEvent.stopPropagation(e); handleMarkerClick(marker, 'bus', s); }); STATE.markersMap.bus[s.id] = marker; return marker; }); STATE.busCluster.addLayers(markers); STATE.markersCreated.bus = true; }
+        function createBikeMarkers() { if (STATE.markersCreated.bike) return; const markers = STATE.dataBike.map(s => { const marker = L.marker([s.lat, s.lng], { icon: L.divIcon({ className: 'custom-icon ubike-icon', html: '<span class="material-icons-round text-lg text-black">pedal_bike</span>', iconSize: [30, 30] }) }); marker.on('click', (e) => { L.DomEvent.stopPropagation(e); handleMarkerClick(marker, 'bike', s); }); STATE.markersMap.bike[s.station_no] = marker; return marker; }); STATE.bikeCluster.addLayers(markers); STATE.markersCreated.bike = true; }
+        function createMetroLrtMarkers() { if (STATE.markersCreated.metro) return; const mR = [], mO = [], mC = []; STATE.dataMetro.forEach(s => { const l = s.id.charAt(0).toUpperCase(); const i = L.divIcon({className:`custom-icon metro-icon line-bg-${l}`, html:`<b>${l}</b>`, iconSize:[30,30]}); const marker = L.marker([s.lat, s.lon], {icon: i}); marker.on('click', (e) => { L.DomEvent.stopPropagation(e); handleMarkerClick(marker,'metro',s); }); STATE.markersMap.metro[s.id] = marker; if(l==='R') mR.push(marker); else if(l==='O') mO.push(marker); else if(l==='C') mC.push(marker); }); STATE.metroRCluster.addLayers(mR); STATE.metroOCluster.addLayers(mO); STATE.lrtCluster.addLayers(mC); STATE.markersCreated.metro = true; }
 
         function handleMarkerClick(marker, type, data) { openSidebar(type, data); }
 
@@ -414,20 +398,28 @@
                 checkbox.addEventListener('change', handleToggleChange);
             });
         }
+        
         async function handleToggleChange(event) {
             const id = event.target.id.replace('-toggle', '');
             STATE.settings[id] = event.target.checked;
             saveSettings();
             
             if (event.target.checked) {
+                // 步驟 1: 確保資料已載入
                 if (id === 'bus' && STATE.dataBus.length === 0) await loadBusData();
                 if (id === 'bike' && STATE.dataBike.length === 0) await loadBikeData();
                 if ((id === 'metroR' || id === 'metroO' || id === 'lrt') && STATE.dataMetro.length === 0) {
                    await loadMetroLrtData();
                 }
+                
+                // 步驟 2: 確保圖釘已建立
+                if (id === 'bus') createBusMarkers();
+                if (id === 'bike') createBikeMarkers();
+                if (id === 'metroR' || id === 'metroO' || id === 'lrt') createMetroLrtMarkers();
             }
             applySettings();
         }
+
         function applySettings() {
             const layerMap = { bus: STATE.busCluster, bike: STATE.bikeCluster, metroR: STATE.metroRCluster, metroO: STATE.metroOCluster, lrt: STATE.lrtCluster };
             for (const key in layerMap) {
