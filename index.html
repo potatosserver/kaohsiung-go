@@ -239,7 +239,23 @@
         function initHistoryListener() { window.addEventListener('popstate', (e) => { const nm = document.getElementById('nav-modal'), im = document.getElementById('iframe-modal'), sb = document.getElementById('sidebar'); if (!im.classList.contains('hidden')) { im.classList.add('hidden'); im.querySelector('iframe').src = ''; } else if (!nm.classList.contains('hidden')) { nm.classList.add('hidden'); } else if (sb.classList.contains('active')) { toggleSidebarUI(false); } }); }
         function handleModalClick(event) { if (event.target.id === 'nav-modal') cancelRedirect(); }
         function confirmRedirect(rid, rn, sid) { STATE.pendingRouteId=rid; STATE.pendingStationId=sid; document.getElementById('nav-route-name').innerText=rn; document.getElementById('nav-modal').classList.remove('hidden'); history.pushState({modal:'nav'},'',); }
-        function doRedirect() { const m=document.getElementById('nav-modal'), im=document.getElementById('iframe-modal'), i=document.getElementById('iframe-content'), t=document.getElementById('iframe-title'); m.classList.add('hidden'); const rn=document.getElementById('nav-route-name').innerText; t.innerText=`${rn} 路線動態`; let u=`${CONFIG.TRACKER_BASE}&route=${STATE.pendingRouteId}`; if(STATE.pendingStationId) u+=`&station=${STATE.pendingStationId}`; i.src=u; im.classList.remove('hidden'); history.pushState({modal:'iframe'},''); }
+        
+        // --- ✨✨✨ 已更新此函式 ✨✨✨ ---
+        function doRedirect() {
+            const m=document.getElementById('nav-modal'), im=document.getElementById('iframe-modal'), i=document.getElementById('iframe-content'), t=document.getElementById('iframe-title');
+            m.classList.add('hidden'); 
+            const rn=document.getElementById('nav-route-name').innerText;
+            t.innerText=`${rn} 路線動態`;
+            let u=`${CONFIG.TRACKER_BASE}&route=${STATE.pendingRouteId}`;
+            if(STATE.pendingStationId) u+=`&station=${STATE.pendingStationId}`;
+            i.src=u;
+            im.classList.remove('hidden');
+            // 關鍵修正：使用 replaceState 取代 pushState
+            // 這會將瀏覽器歷史紀錄中的 "確認彈窗" 狀態，直接替換為 "內嵌瀏覽器" 狀態
+            // 避免了歷史紀錄的堆疊
+            history.replaceState({modal:'iframe'},'');
+        }
+
         function cancelRedirect() { history.back(); }
         function closeIframeModal() { history.back(); }
 
@@ -391,68 +407,36 @@
 
         function toggleSidebarUI(show) { const sb = document.getElementById('sidebar'); const isLandscape = window.innerWidth > window.innerHeight; if (isLandscape) { sb.classList.toggle('active', show); } else { sb.style.height = show ? '60vh' : '0px'; sb.classList.toggle('active', show); } document.body.classList.toggle('sidebar-open', show); if (!show) { stopAutoRefresh(); STATE.currentContext = null; if(new URLSearchParams(window.location.search).toString() !== '') history.replaceState(null, '', window.location.pathname); } }
         
-        // --- ✨✨✨ 已更新此函式 ✨✨✨ ---
         function initSidebarGestures() {
             const sidebar = document.getElementById('sidebar');
             const header = document.getElementById('sidebar-header');
-
-            // 狀態變數
-            let isDragging = false;
-            let startY = 0;
-            let startHeight = 0;
-            let startTime = 0;
-            
-            // 可調整的參數
-            const MIN_CLOSE_HEIGHT = window.innerHeight * 0.2; // 低於視窗高度 20% 就關閉
-            const FLICK_VELOCITY_THRESHOLD = 0.7; // 滑動速度閾值 (pixels/ms)
-
+            let isDragging = false, startY = 0, startHeight = 0, startTime = 0;
+            const MIN_CLOSE_HEIGHT = window.innerHeight * 0.2, FLICK_VELOCITY_THRESHOLD = 0.7;
             const isLandscape = () => window.innerWidth > window.innerHeight;
-
             header.addEventListener('touchstart', (e) => {
                 if (isLandscape() || !sidebar.classList.contains('active')) return;
-                
-                isDragging = true;
-                startY = e.touches[0].clientY;
-                startHeight = sidebar.offsetHeight;
-                startTime = Date.now();
-                sidebar.style.transition = 'none'; // 拖曳時移除轉場動畫，確保流暢
+                isDragging = true; startY = e.touches[0].clientY; startHeight = sidebar.offsetHeight; startTime = Date.now();
+                sidebar.style.transition = 'none';
             }, { passive: true });
-
             document.addEventListener('touchmove', (e) => {
                 if (!isDragging) return;
-
-                const currentY = e.touches[0].clientY;
-                const diffY = currentY - startY;
+                const currentY = e.touches[0].clientY, diffY = currentY - startY;
                 let newHeight = startHeight - diffY;
-
-                // 增加邊界，避免拖曳超出範圍
                 const maxHeight = window.innerHeight * 0.9;
                 if (newHeight > maxHeight) newHeight = maxHeight;
-                
                 sidebar.style.height = `${newHeight}px`;
             }, { passive: true });
-
             document.addEventListener('touchend', (e) => {
                 if (!isDragging) return;
-                
                 isDragging = false;
-                sidebar.style.transition = 'height 0.4s cubic-bezier(0.25, 1, 0.5, 1)'; // 恢復動畫
-
-                const endY = e.changedTouches[0].clientY;
-                const distance = endY - startY; // 正數表示向下滑
-                const duration = Date.now() - startTime;
-                
-                // 計算速度 (像素/毫秒)
+                sidebar.style.transition = 'height 0.4s cubic-bezier(0.25, 1, 0.5, 1)';
+                const endY = e.changedTouches[0].clientY, distance = endY - startY, duration = Date.now() - startTime;
                 const velocity = Math.abs(distance) / duration;
-
                 const shouldCloseByFlick = distance > 0 && velocity > FLICK_VELOCITY_THRESHOLD;
                 const shouldCloseByHeight = sidebar.offsetHeight < MIN_CLOSE_HEIGHT;
-                
                 if (shouldCloseByFlick || shouldCloseByHeight) {
-                    // 使用 history.back() 觸發關閉邏輯
                     history.back();
                 }
-                // 如果不關閉，則維持在當前高度，不做任何事
             });
         }
         
