@@ -102,7 +102,7 @@
         @property --angle { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
         @keyframes countdown-ring { from { --angle: 0deg; } to { --angle: 360deg; } }
         #refresh-progress-ring { background: conic-gradient(transparent var(--angle), #3b82f6 var(--angle)); display: none; }
-        #refresh-progress-ring.animate-ring { display: block; animation: countdown-ring 30s linear; }
+        #refresh-progress-ring.animate-ring { display: block; animation: countdown-ring linear; }
         
         /* 設定按鈕與面板樣式 */
         #settings-btn { position: fixed; bottom: 20px; right: 20px; z-index: 1000; }
@@ -157,9 +157,9 @@
             IBUS_API: 'https://ibus.tbkc.gov.tw/ibus/graphql', 
             TRACKER_BASE: 'https://kaohsiung-live-bus.pages.dev/?page=tracker', 
             
-            // --- 代理設定 (移除第三代理) ---
-            PROXY_URL: 'https://corsproxy.io/?', // 主代理
-            PROXY_SEC: 'https://cors-anywhere.potatosserver.workers.dev/?url=', // 第二代理
+            // --- 代理設定 ---
+            PROXY_URL: 'https://corsproxy.io/?', 
+            PROXY_SEC: 'https://cors-anywhere.potatosserver.workers.dev/?url=', 
             
             METRO_STATIONS: 'https://traffic.tbkc.gov.tw/api/metro/stations', 
             LRT_STATIONS: 'https://traffic.tbkc.gov.tw/api/lrts', 
@@ -174,7 +174,6 @@
             currentContext: null, pendingRouteId: null, pendingStationId: null, autoRefreshTimer: null, 
             userMarker: null, userAccuracy: null, geoWatcherId: null, metroLrtLiveCache: null, metroLrtLiveCacheTime: 0, 
             settings: {}, markersCreated: { bus: false, bike: false, metro: false }, anchors: [],
-            // --- 新增：使用第二代理的狀態標記 ---
             useSecondaryProxy: false 
         };
         const LOCATE_ICON_ELEMENT = document.querySelector('#search-box button:last-child span');
@@ -190,6 +189,13 @@
             initHistoryListener();
             initialLocate(!hasTargetParam);
             startContinuousGeolocation();
+
+            // 監聽網頁可見性變化，當使用者回到網頁時自動刷新
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible' && STATE.currentContext && document.getElementById('sidebar').classList.contains('active')) {
+                    refreshData(true);
+                }
+            });
 
             const loadingTasks = [];
             if (STATE.settings.bus) loadingTasks.push({ name: '公車站點', fn: loadBusData });
@@ -225,9 +231,7 @@
             const loadingTextElement = document.getElementById('loading-text');
             if (loadingTextElement) {
                 let fullText = txt;
-                if (current && total > 0) {
-                    fullText += ` (${current}/${total})`;
-                }
+                if (current && total > 0) fullText += ` (${current}/${total})`;
                 loadingTextElement.innerText = fullText;
             }
         }
@@ -241,12 +245,17 @@
         function cancelRedirect() { history.back(); }
         function closeIframeModal() { history.back(); }
 
-        function startAutoRefresh() {
+        // --- 優化後的自動刷新機制 ---
+        function startAutoRefresh(interval = 30000) {
             stopAutoRefresh(); 
             if (!STATE.currentContext) return;
             const ring = document.getElementById('refresh-progress-ring');
             ring.classList.remove('animate-ring');
-            void ring.offsetWidth; 
+            void ring.offsetWidth; // Trigger reflow
+            
+            // 設定動態秒數
+            ring.style.animationDuration = `${interval}ms`;
+            
             ring.classList.add('animate-ring');
             STATE.autoRefreshTimer = setTimeout(() => {
                 if (document.getElementById('sidebar').classList.contains('active')) {
@@ -254,12 +263,14 @@
                 } else {
                     stopAutoRefresh();
                 }
-            }, 30000);
+            }, interval);
         }
+
         function stopAutoRefresh() {
             if (STATE.autoRefreshTimer) clearTimeout(STATE.autoRefreshTimer);
             STATE.autoRefreshTimer = null;
-            document.getElementById('refresh-progress-ring').classList.remove('animate-ring');
+            const ring = document.getElementById('refresh-progress-ring');
+            if(ring) ring.classList.remove('animate-ring');
         }
         
         function initialLocate(moveToUser = true) { if (!navigator.geolocation) return; navigator.geolocation.getCurrentPosition((pos) => { updateUserLocation(pos); if (moveToUser) { STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17, { animate: true, duration: 1.2 }); } }, (err) => {}, { timeout: 8000, enableHighAccuracy: true }); }
@@ -282,21 +293,64 @@
             }, { timeout: 8000, enableHighAccuracy: true });
         }
 
+        // --- 核心更新：含資料鎖定，空資料不加速 ---
         async function refreshData(isAuto = false) { 
             if (!STATE.currentContext) return;
             stopAutoRefresh(); 
+            
             const btnIcon = document.querySelector('#refresh-btn span');
+            const contentDiv = document.getElementById('sb-content');
+            
+            // 判斷是否為初次載入 (根據是否有骨架圖或空內容)
+            const isFirstLoad = contentDiv.querySelector('.animate-pulse') !== null || contentDiv.innerHTML.trim() === '';
+
             btnIcon.classList.add('spin-anim');
-            const { type, data } = STATE.currentContext; const c = document.getElementById('sb-content'); let s = false; 
-            if (type === 'bus') { const a = await getBusArrivals(data.id); renderBusContent(a, c); if (a) s = true; } 
-            else if (type === 'bike') { const i = await getBikeRealtime(data.station_no); renderBikeContent(i, c); if (i) s = true; }
-            else if (type === 'metro') { const a = await getMetroLrtArrivals(data.id, true); renderMetroLrtContent(a, c); if (a) s = true; }
+            
+            const { type, data } = STATE.currentContext;
+            let newData = null;
+            let isSuccess = false;
+            let nextRefreshTime = 30000; // 預設 30 秒
+
+            // 抓取資料
+            if (type === 'bus') newData = await getBusArrivals(data.id);
+            else if (type === 'bike') newData = await getBikeRealtime(data.station_no);
+            else if (type === 'metro') newData = await getMetroLrtArrivals(data.id, true);
+
+            // 邏輯處理
+            if (newData === null) {
+                // --- 失敗 ---
+                if (isFirstLoad) {
+                    // 第一次載入就失敗 -> 顯示錯誤 UI
+                    if (type === 'bus') renderBusContent(null, contentDiv);
+                    else if (type === 'bike') renderBikeContent(null, contentDiv);
+                    else if (type === 'metro') renderMetroLrtContent(null, contentDiv);
+                    if (!isAuto) showToast('資料載入失敗', 'error');
+                } else {
+                    // 已有舊資料 -> 鎖定 UI (不呼叫 render)，顯示 Toast 提示
+                    showToast('更新失敗，保留舊資料', 'error');
+                }
+                // 只有在連線失敗時，才加速重試 (10秒)，因為可能是網路瞬斷
+                nextRefreshTime = 10000; 
+            } else {
+                // --- 成功 ---
+                isSuccess = true;
+                
+                // 渲染新資料
+                if (type === 'bus') renderBusContent(newData, contentDiv);
+                else if (type === 'bike') renderBikeContent(newData, contentDiv);
+                else if (type === 'metro') renderMetroLrtContent(newData, contentDiv);
+
+                // 即使資料為空 (收班/沒車)，也保持 30 秒更新，不加速以節省流量
+            }
             
             setTimeout(() => {
                 btnIcon.classList.remove('spin-anim');
-                if (isAuto) { if(s) showToast('即時資料已自動更新', 'success'); } 
-                else { if(s) showToast('即時資料已更新', 'success'); else showToast('資料更新失敗', 'error'); }
-                startAutoRefresh();
+                if (isSuccess) {
+                    if (isAuto) showToast('即時資料已自動更新', 'success');
+                    else showToast('即時資料已更新', 'success');
+                }
+                // 使用動態時間啟動倒數
+                startAutoRefresh(nextRefreshTime);
             }, 600);
         }
 
@@ -320,12 +374,9 @@
             STATE.lrtCluster = L.markerClusterGroup({ ...o, iconCreateFunction: cf('marker-cluster-lrt') });
         }
 
-        // --- 核心更新：使用「永久切換標記 (Latch)」機制 ---
         const fetchWithProxy = async (url) => {
             const target = encodeURIComponent(url);
-            const TIMEOUT_MS = 4000; // 4秒超時
-
-            // 輔助函式：執行 fetch
+            const TIMEOUT_MS = 4000;
             const doFetch = async (proxyBase) => {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -336,39 +387,26 @@
                     return await res.json();
                 } catch (err) {
                     clearTimeout(timeoutId);
-                    throw err; // 往上拋出錯誤給呼叫者處理
+                    throw err;
                 }
             };
 
-            // 1. 檢查是否已經永久切換到第二代理
-            if (STATE.useSecondaryProxy) {
-                // 直接使用第二代理，不浪費時間試主代理
-                return await doFetch(CONFIG.PROXY_SEC);
-            }
+            if (STATE.useSecondaryProxy) return await doFetch(CONFIG.PROXY_SEC);
 
-            // 2. 嘗試主代理
             try {
                 return await doFetch(CONFIG.PROXY_URL);
             } catch (e) {
-                console.warn(`主代理失敗 (${e.name}: ${e.message})，正在永久切換至第二代理...`);
-                
-                // 3. 標記：以後所有請求直接用第二代理
+                console.warn(`主代理失敗 (${e.name}: ${e.message})，切換至第二代理...`);
                 STATE.useSecondaryProxy = true;
-
-                // 4. 立即用第二代理重試這一次的請求
                 return await doFetch(CONFIG.PROXY_SEC);
             }
         };
 
-        // --- 修正點：移除 fetchGraphQL 的手動 Origin 設定，避免瀏覽器傳送 null ---
         async function fetchGraphQL(q) { 
             try { 
                 const r = await fetch(CONFIG.IBUS_API, { 
                     method: 'POST', 
-                    headers: { 
-                        'Content-Type': 'application/json' 
-                        // Origin 和 Referer 已移除，讓瀏覽器自動傳送真實 Origin
-                    }, 
+                    headers: { 'Content-Type': 'application/json' }, 
                     body: JSON.stringify({ query:q }) 
                 }); 
                 if (!r.ok) throw new Error(`HTTP ${r.status}`); 
@@ -512,9 +550,9 @@
 
             toggleSidebarUI(true);
             STATE.currentContext = { type, data }; const c=document.getElementById('sb-content'),b=document.getElementById('sb-badge'),t=document.getElementById('sb-title'),s=document.getElementById('sb-subtitle'); c.innerHTML=`<div class="animate-pulse space-y-4"><div class="h-24 bg-gray-200 rounded-2xl"></div><div class="h-12 bg-gray-200 rounded-xl"></div></div>`;
-            if (type === 'bus') { b.className='inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold mb-2 bg-blue-100 text-blue-700'; b.innerHTML='<span class="material-icons-outlined text-sm mr-1">directions_bus</span> 公車'; t.innerText=data.name; s.innerText=`ID: ${data.id}`; const a=await getBusArrivals(data.id); renderBusContent(a,c); } 
-            else if (type === 'bike') { b.className='inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold mb-2 bg-yellow-100 text-yellow-800'; b.innerHTML='<span class="material-icons-round text-sm mr-1">pedal_bike</span> YouBike 2.0'; t.innerText=data.name_tw; s.innerText=data.address_tw; const i=await getBikeRealtime(data.station_no); renderBikeContent(i,c); } 
-            else if (type === 'metro') { const l=data.id.charAt(0).toUpperCase(); let bc='',bt=''; if(l==='R'){bc='bg-red-100 text-red-700';bt='紅線';}else if(l==='O'){bc='bg-orange-100 text-orange-700';bt='橘線';}else{bc='bg-green-100 text-green-700';bt='環狀輕軌';} b.className=`inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold mb-2 ${bc}`; b.innerHTML=`<span class="material-icons-round text-sm mr-1">tram</span> ${bt}`; t.innerText=data.name; s.innerText=`車站代碼: ${data.id}`; const a=await getMetroLrtArrivals(data.id); renderMetroLrtContent(a,c); }
+            if (type === 'bus') { b.className='inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold mb-2 bg-blue-100 text-blue-700'; b.innerHTML='<span class="material-icons-outlined text-sm mr-1">directions_bus</span> 公車'; t.innerText=data.name; s.innerText=`ID: ${data.id}`; const a=await getBusArrivals(data.id); if(a!==null) renderBusContent(a,c); else refreshData(); /* Trigger error handling in refreshData */ } 
+            else if (type === 'bike') { b.className='inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold mb-2 bg-yellow-100 text-yellow-800'; b.innerHTML='<span class="material-icons-round text-sm mr-1">pedal_bike</span> YouBike 2.0'; t.innerText=data.name_tw; s.innerText=data.address_tw; const i=await getBikeRealtime(data.station_no); if(i!==null) renderBikeContent(i,c); else refreshData(); } 
+            else if (type === 'metro') { const l=data.id.charAt(0).toUpperCase(); let bc='',bt=''; if(l==='R'){bc='bg-red-100 text-red-700';bt='紅線';}else if(l==='O'){bc='bg-orange-100 text-orange-700';bt='橘線';}else{bc='bg-green-100 text-green-700';bt='環狀輕軌';} b.className=`inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold mb-2 ${bc}`; b.innerHTML=`<span class="material-icons-round text-sm mr-1">tram</span> ${bt}`; t.innerText=data.name; s.innerText=`車站代碼: ${data.id}`; const a=await getMetroLrtArrivals(data.id); if(a!==null) renderMetroLrtContent(a,c); else refreshData(); }
             startAutoRefresh();
             const paramName = type === 'bike' ? 'youbike' : type;
             const newPath = `${window.location.pathname}?${paramName}=${newId}`;
