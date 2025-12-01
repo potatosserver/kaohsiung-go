@@ -411,9 +411,13 @@
         function initSidebarGestures() { const sbh = document.getElementById('sidebar-header'), sb = document.getElementById('sidebar'); let sy=0, sh=0, d=false; const isl=()=>window.innerWidth > window.innerHeight; sbh.addEventListener('touchstart',(e)=>{if(isl()||!sb.classList.contains('active'))return; d=true; sy=e.touches[0].clientY; sh=sb.offsetHeight; sb.style.transition='none';},{passive:true}); sbh.addEventListener('touchmove',(e)=>{if(!d||isl())return; const ty=e.touches[0].clientY; const dy=sy-ty; let nh=sh+dy; if(nh<0)nh=0; sb.style.height=`${nh}px`;},{passive:true}); sbh.addEventListener('touchend',(e)=>{if(!d||isl())return; d=false; sb.style.transition='height 0.4s cubic-bezier(0.25, 1, 0.5, 1)'; if (sb.offsetHeight < sh * 0.7) history.back(); else sb.style.height = `${sh}px`; });}
         
         async function openSidebar(type, data) {
-            const isLandscape = window.innerWidth > window.innerHeight; const lat = data.lat, lon = data.lon ?? data.lng; const targetLatLng = L.latLng(lat, lon); const newId = type === 'bike' ? data.station_no : data.id; const isSameMarker = STATE.currentContext && STATE.currentContext.data && (type === 'bike' ? STATE.currentContext.data.station_no === newId : STATE.currentContext.data.id === newId); if (isSameMarker) return;
+            const isLandscape = window.innerWidth > window.innerHeight; 
+            const lat = data.lat, lon = data.lon ?? data.lng; 
+            const targetLatLng = L.latLng(lat, lon); 
+            const newId = type === 'bike' ? data.station_no : data.id; 
             
-            let panByX=0, panByY=0; 
+            // 1. 先計算「視覺目標中心點」 (將原本在下方的計算邏輯移到最上面)
+            let panByX = 0, panByY = 0; 
             if (isLandscape) { 
                 panByX = -196; 
             } else { 
@@ -428,6 +432,22 @@
             const newCenterPoint = targetPoint.add(L.point(panByX, panByY)); 
             const newCenterLatLng = STATE.map.unproject(newCenterPoint, currentZoom); 
 
+            // 2. 判斷是否為同一個站點
+            const isSameMarker = STATE.currentContext && STATE.currentContext.data && (type === 'bike' ? STATE.currentContext.data.station_no === newId : STATE.currentContext.data.id === newId); 
+            
+            if (isSameMarker) {
+                // 3. 如果是同一個站點，檢查地圖中心是否已經偏離
+                const currentCenter = STATE.map.getCenter();
+                const dist = currentCenter.distanceTo(newCenterLatLng); // 計算距離 (公尺)
+
+                // 設定閾值：如果偏離超過 10 公尺，就視為「未定位」，執行移動
+                if (dist > 10) {
+                    STATE.map.panTo(newCenterLatLng, {animate:true, duration:0.8}); 
+                }
+                return; // 不重新載入側邊欄資料
+            }
+            
+            // 4. 不同站點，執行移動並載入資料
             STATE.map.panTo(newCenterLatLng, {animate:true, duration:0.8}); 
 
             toggleSidebarUI(true);
