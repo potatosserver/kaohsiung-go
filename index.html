@@ -240,7 +240,6 @@
         function handleModalClick(event) { if (event.target.id === 'nav-modal') cancelRedirect(); }
         function confirmRedirect(rid, rn, sid) { STATE.pendingRouteId=rid; STATE.pendingStationId=sid; document.getElementById('nav-route-name').innerText=rn; document.getElementById('nav-modal').classList.remove('hidden'); history.pushState({modal:'nav'},'',); }
         
-        // --- ✨✨✨ 已更新此函式 ✨✨✨ ---
         function doRedirect() {
             const m=document.getElementById('nav-modal'), im=document.getElementById('iframe-modal'), i=document.getElementById('iframe-content'), t=document.getElementById('iframe-title');
             m.classList.add('hidden'); 
@@ -250,14 +249,28 @@
             if(STATE.pendingStationId) u+=`&station=${STATE.pendingStationId}`;
             i.src=u;
             im.classList.remove('hidden');
-            // 關鍵修正：使用 replaceState 取代 pushState
-            // 這會將瀏覽器歷史紀錄中的 "確認彈窗" 狀態，直接替換為 "內嵌瀏覽器" 狀態
-            // 避免了歷史紀錄的堆疊
             history.replaceState({modal:'iframe'},'');
         }
 
         function cancelRedirect() { history.back(); }
-        function closeIframeModal() { history.back(); }
+
+        // --- ✨✨✨ 已更新此函式 ✨✨✨ ---
+        function closeIframeModal() {
+            // 步驟 1: 立即、強制地隱藏 UI 並清空 iframe
+            // 這會中斷 iframe 的作用，使其無法再攔截 history 操作
+            const iframeModal = document.getElementById('iframe-modal');
+            if (iframeModal) {
+                iframeModal.classList.add('hidden');
+                iframeModal.querySelector('iframe').src = 'about:blank'; // 清空 src
+            }
+            
+            // 步驟 2: 在 UI 處理完畢後，再執行 history.back() 來修正歷史紀錄
+            // 確保 URL 和瀏覽器的前進/後退狀態是正確的
+            // 由於此時 iframe 已被清空，這個指令不會再被攔截
+            if (history.state && history.state.modal === 'iframe') {
+                history.back();
+            }
+        }
 
         function startAutoRefresh(interval = 30000) {
             stopAutoRefresh(); 
