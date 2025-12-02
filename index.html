@@ -188,6 +188,20 @@
             initHistoryListener();
             initialLocate(!hasTargetParam);
             startContinuousGeolocation();
+            
+            // --- ✨✨✨ 修復轉向問題的代碼位置 ✨✨✨ ---
+            window.addEventListener('resize', () => {
+                const sb = document.getElementById('sidebar');
+                if (window.innerWidth > window.innerHeight) {
+                    // 切換到橫向時，移除由 JS 設定的 inline height，讓 CSS 的 height: calc(100% - 24px) 生效
+                    sb.style.removeProperty('height');
+                } else {
+                    // 切換回直向時，若側邊欄是開啟狀態但沒有高度，恢復預設高度
+                    if (sb.classList.contains('active') && !sb.style.height) {
+                        sb.style.height = '60vh';
+                    }
+                }
+            });
 
             document.addEventListener('visibilitychange', () => {
                 if (document.visibilityState === 'visible' && STATE.currentContext && document.getElementById('sidebar').classList.contains('active')) {
@@ -254,19 +268,12 @@
 
         function cancelRedirect() { history.back(); }
 
-        // --- ✨✨✨ 已更新此函式 ✨✨✨ ---
         function closeIframeModal() {
-            // 步驟 1: 立即、強制地隱藏 UI 並清空 iframe
-            // 這會中斷 iframe 的作用，使其無法再攔截 history 操作
             const iframeModal = document.getElementById('iframe-modal');
             if (iframeModal) {
                 iframeModal.classList.add('hidden');
-                iframeModal.querySelector('iframe').src = 'about:blank'; // 清空 src
+                iframeModal.querySelector('iframe').src = 'about:blank';
             }
-            
-            // 步驟 2: 在 UI 處理完畢後，再執行 history.back() 來修正歷史紀錄
-            // 確保 URL 和瀏覽器的前進/後退狀態是正確的
-            // 由於此時 iframe 已被清空，這個指令不會再被攔截
             if (history.state && history.state.modal === 'iframe') {
                 history.back();
             }
