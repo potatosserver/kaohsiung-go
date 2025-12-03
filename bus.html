@@ -61,9 +61,9 @@
         /* --- Header & Buttons --- */
         header {
             flex-shrink: 0;
-            background-color: transparent; /* 修改：移除背景色 */
+            background-color: transparent;
             padding: 0.5rem 0;
-            box-shadow: none; /* 修改：移除陰影 */
+            box-shadow: none;
             z-index: 50;
             position: relative;
         }
@@ -152,10 +152,9 @@
             border-color: #3b82f6;
         }
         .btn-inactive {
-            background-color: transparent; /* 背景透明 */
+            background-color: rgba(255, 255, 255, 0.5);
             color: #3b82f6;
             border-color: #3b82f6;
-            background-color: rgba(255, 255, 255, 0.5); /* 輕微白底增加對比，可選 */
         }
 
         /* --- Split View --- */
@@ -217,7 +216,8 @@
             top: 0; left: 0; right: 0; bottom: 0;
             overflow-y: auto;
             -webkit-overflow-scrolling: touch;
-            padding: 1rem 1rem 80px 0;
+            /* 修改：手機版底部間距減少為 50px */
+            padding: 1rem 1rem 50px 0;
         }
         #stationListGoContent, #stationListBackContent {
             position: relative;
@@ -312,11 +312,11 @@
         /* --- Update Button --- */
         #updateCountdown {
             position: fixed;
-            bottom: 20px;
+            bottom: 10px; /* 修改：位置降低至 10px */
             left: 50%;
             transform: translateX(-50%);
             z-index: 1001;
-            padding: 6px 12px; /* 修改：降低 Padding 減少高度 */
+            padding: 6px 12px;
             background-color: #e0f2fe;
             color: #0f172a;
             border-radius: 20px;
@@ -327,11 +327,11 @@
             gap: 6px;
             cursor: pointer;
             border: 1px solid #bae6fd;
-            font-variant-numeric: tabular-nums; /* 修改：數字等寬 */
+            font-variant-numeric: tabular-nums;
         }
         #updateCountdownText {
             display: inline-block;
-            min-width: 70px; /* 修改：固定文字寬度，防止跳動 */
+            min-width: 70px;
             text-align: left;
         }
         @keyframes spin-180 { from { transform: rotate(0deg); } to { transform: rotate(180deg); } }
@@ -355,7 +355,7 @@
         /* --- Dark Mode --- */
         @media (prefers-color-scheme: dark) {
             body { background-color: #0f172a; color: #e2e8f0; }
-            header { background-color: transparent; } /* Header 透明 */
+            header { background-color: transparent; }
             .bg-white { background-color: #1e293b; }
             .text-slate-800 { color: #e2e8f0; }
             .text-slate-500 { color: #94a3b8; }
@@ -404,6 +404,11 @@
              }
              
              #dragHandle { display: none; }
+
+             /* 修改：電腦模式下不需為卡片保留底部空間 */
+             .station-list-container {
+                 padding-bottom: 1rem;
+             }
              
              @media (prefers-color-scheme: dark) {
                  #content-wrapper { background-color: #0f172a; }
@@ -580,8 +585,8 @@
                 document.addEventListener('touchmove', (e) => {
                     if (!isDragging) return;
                     const deltaY = startY - e.touches[0].clientY;
-                    // 修改：最小高度設為 80px (拖曳桿 24px + 按鈕高度空間)，避免蓋住更新按鈕
-                    const newHeight = Math.min(Math.max(startHeight + deltaY, 80), contentWrapper.offsetHeight);
+                    // 修改：最小高度設為 30px (僅保留拖曳桿高度)，不再避開按鈕
+                    const newHeight = Math.min(Math.max(startHeight + deltaY, 30), contentWrapper.offsetHeight);
                     panel.style.height = `${newHeight}px`;
                     map.invalidateSize();
                 }, { passive: true });
