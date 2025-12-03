@@ -55,15 +55,15 @@
             flex-direction: column;
             min-height: 0;
             padding: 0;
-            max-width: 100%;
+            max-width: 100% !important;
         }
 
         /* --- Header & Buttons --- */
         header {
             flex-shrink: 0;
-            background-color: #fff;
-            padding: 0.5rem;
-            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            background-color: transparent; /* 修改：移除背景色 */
+            padding: 0.5rem 0;
+            box-shadow: none; /* 修改：移除陰影 */
             z-index: 50;
             position: relative;
         }
@@ -73,7 +73,8 @@
             flex-direction: row;
             justify-content: center;
             width: 100%;
-            gap: 8px;
+            gap: 4px;
+            padding: 0 4px;
         }
 
         .direction-button {
@@ -135,7 +136,6 @@
             padding-right: 20px;
         }
         
-        /* List marquee slightly faster/different if desired */
         .list-marquee-text.is-overflowing {
             animation: marquee-scroll 8s linear infinite;
             padding-right: 20px;
@@ -152,9 +152,10 @@
             border-color: #3b82f6;
         }
         .btn-inactive {
-            background-color: transparent;
+            background-color: transparent; /* 背景透明 */
             color: #3b82f6;
             border-color: #3b82f6;
+            background-color: rgba(255, 255, 255, 0.5); /* 輕微白底增加對比，可選 */
         }
 
         /* --- Split View --- */
@@ -170,7 +171,7 @@
             flex-grow: 1;
             width: 100%;
             background-color: #e5e7eb;
-            min-height: 35%; 
+            min-height: 0;
         }
         #estimateTimesSection {
             flex-shrink: 0;
@@ -315,7 +316,7 @@
             left: 50%;
             transform: translateX(-50%);
             z-index: 1001;
-            padding: 8px 16px;
+            padding: 6px 12px; /* 修改：降低 Padding 減少高度 */
             background-color: #e0f2fe;
             color: #0f172a;
             border-radius: 20px;
@@ -326,6 +327,12 @@
             gap: 6px;
             cursor: pointer;
             border: 1px solid #bae6fd;
+            font-variant-numeric: tabular-nums; /* 修改：數字等寬 */
+        }
+        #updateCountdownText {
+            display: inline-block;
+            min-width: 70px; /* 修改：固定文字寬度，防止跳動 */
+            text-align: left;
         }
         @keyframes spin-180 { from { transform: rotate(0deg); } to { transform: rotate(180deg); } }
         .spin-update { animation: spin-180 0.5s ease forwards; }
@@ -348,7 +355,7 @@
         /* --- Dark Mode --- */
         @media (prefers-color-scheme: dark) {
             body { background-color: #0f172a; color: #e2e8f0; }
-            header { background-color: #1e293b; }
+            header { background-color: transparent; } /* Header 透明 */
             .bg-white { background-color: #1e293b; }
             .text-slate-800 { color: #e2e8f0; }
             .text-slate-500 { color: #94a3b8; }
@@ -361,25 +368,54 @@
             #stationListGoContent::before, #stationListBackContent::before { background-color: #475569; }
             #updateCountdown { background-color: #334155; color: #e2e8f0; border-color: #475569; }
             .btn-active { background-color: #3b82f6; color: #e2e8f0; }
-            .btn-inactive { color: #3b82f6; border-color: #3b82f6; }
+            .btn-inactive { color: #3b82f6; border-color: #3b82f6; background-color: rgba(30, 41, 59, 0.5); }
             .time-pill.bg-slate-200 { background-color: #334155; color: #cbd5e1; }
             .time-pill.bg-red-200 { background-color: #991b1b; color: #fecaca; }
             .time-pill.bg-green-200 { background-color: #166534; color: #dcfce7; }
             .time-pill.bg-blue-200 { background-color: #1e40af; color: #dbeafe; }
         }
 
-        /* --- Landscape Fix --- */
+        /* --- Landscape Fix (Computer Mode) --- */
         @media (orientation: landscape) {
-             #content-wrapper { flex-direction: row; }
-             #map { height: 100%; order: 2; }
-             #estimateTimesSection { 
-                 width: 400px; 
-                 height: 100% !important; 
-                 order: 1; 
-                 border-top: none;
-                 border-right: 1px solid #cbd5e1;
+             #content-wrapper { 
+                 flex-direction: row; 
+                 padding: 10px;
+                 gap: 10px;
+                 background-color: #f1f5f9;
              }
+             
+             #map { 
+                 height: 100%; 
+                 order: 2; 
+                 border-radius: 24px;
+                 box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+                 z-index: 10;
+                 overflow: hidden;
+             }
+             
+             #estimateTimesSection { 
+                 width: 420px; 
+                 height: 100% !important;
+                 order: 1; 
+                 border: none;
+                 border-radius: 24px;
+                 box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+                 background-color: #ffffff;
+             }
+             
              #dragHandle { display: none; }
+             
+             @media (prefers-color-scheme: dark) {
+                 #content-wrapper { background-color: #0f172a; }
+                 #estimateTimesSection { 
+                     background-color: #1e293b; 
+                     border: 1px solid #334155;
+                 }
+                 #map {
+                     border: 1px solid #334155;
+                 }
+                 .station-icon-container { background-color: #1e293b; }
+             }
         }
     </style>
 </head>
@@ -544,7 +580,8 @@
                 document.addEventListener('touchmove', (e) => {
                     if (!isDragging) return;
                     const deltaY = startY - e.touches[0].clientY;
-                    const newHeight = Math.min(Math.max(startHeight + deltaY, 100), contentWrapper.offsetHeight - 100);
+                    // 修改：最小高度設為 80px (拖曳桿 24px + 按鈕高度空間)，避免蓋住更新按鈕
+                    const newHeight = Math.min(Math.max(startHeight + deltaY, 80), contentWrapper.offsetHeight);
                     panel.style.height = `${newHeight}px`;
                     map.invalidateSize();
                 }, { passive: true });
