@@ -106,7 +106,7 @@
             border-radius: 2px;
         }
 
-        /* List Scrolling Fix */
+        /* List Styling */
         .list-viewport {
             flex-grow: 1;
             position: relative;
@@ -119,12 +119,9 @@
             right: 0;
             bottom: 0;
             overflow-y: auto;
-            overflow-x: hidden; /* 防止左右晃動 */
             -webkit-overflow-scrolling: touch;
-            padding: 1rem 1rem 80px 1rem; /* 左側增加 Padding 給時間軸線 */
+            padding: 1rem 1rem 80px 0;
         }
-
-        /* List Styling */
         #stationListGoContent, #stationListBackContent {
             position: relative;
             padding-left: 20px;
@@ -145,7 +142,6 @@
             display: flex;
             align-items: center;
             margin-bottom: 12px;
-            width: 100%; /* 確保不超過容器 */
         }
         .station-icon-container {
             position: absolute;
@@ -174,7 +170,6 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            min-width: 0; /* 關鍵：防止 Flex 子元素撐爆容器 */
         }
         
         .time-pill {
@@ -184,7 +179,6 @@
             border-radius: 999px;
             font-weight: 700;
             font-size: 0.9em;
-            white-space: nowrap;
         }
 
         /* Animations */
@@ -199,20 +193,10 @@
         .slide-in-from-left { animation: slide-in-from-left 0.3s ease-in forwards; }
         .hidden { display: none !important; }
 
-        /* Marquee */
-        @keyframes marquee-scroll { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
-        
-        /* 
-           FIXED MARQUEE: 
-           Make the container flex-grow but clamp the overflow 
-        */
-        .marquee-container { 
-            overflow: hidden; 
-            white-space: nowrap; 
-            display: block; /* block inside flex item */
-            flex: 1;
-            min-width: 0; /* Crucial for flex truncation */
-            text-align: left; /* Align text start so it looks natural */
+        /* Marquee Styles */
+        @keyframes marquee-scroll { 
+            0% { transform: translateX(0); } 
+            100% { transform: translateX(-50%); } 
         }
         .marquee-text.is-overflowing > * {
             display: inline-block;
@@ -221,7 +205,7 @@
         }
         .marquee-inner { display: inline-block; padding-right: 2rem; }
 
-        /* Direction Buttons & Alignment */
+        /* Direction Buttons - Fixed Layout */
         .direction-button {
             display: flex;
             align-items: center;
@@ -230,19 +214,26 @@
             transition: all 0.2s;
             text-align: center;
             height: 48px;
-            min-width: 0; /* Prevent button from expanding beyond parent */
         }
         .direction-content-wrapper {
             display: flex;
             align-items: center;
-            justify-content: center;
+            justify-content: center; /* Center when content fits */
             width: 100%;
+            max-width: 100%;
             padding: 0 8px;
-            min-width: 0; /* Prevent wrapper from expanding */
         }
         .static-text {
-            flex-shrink: 0;
+            flex-shrink: 0; /* Prevent "去程往" from shrinking */
             white-space: nowrap;
+        }
+        .marquee-container { 
+            overflow: hidden; 
+            white-space: nowrap; 
+            text-overflow: ellipsis; /* Forces width calculation */
+            flex-shrink: 1; /* Allow shrinking to fit parent */
+            min-width: 0; /* CRITICAL: Allows flex item to shrink below content size */
+            display: block; 
         }
 
         /* Update Button */
@@ -317,14 +308,14 @@
     <div id="busTrackerPage">
         <div class="container mx-auto">
              <header class="p-3 bg-white dark:bg-slate-800 shadow-sm z-20 flex-shrink-0">
-                <div class="flex rounded-lg border-2 border-blue-500 overflow-hidden text-sm w-full h-12">
-                    <button id="goDirectionButton" class="direction-button flex-1 p-0 bg-blue-500 text-white" data-direction="1">
+                <div class="flex rounded-lg border-2 border-blue-500 overflow-hidden text-sm w-full">
+                    <button id="goDirectionButton" class="direction-button flex-1 p-2 font-semibold bg-blue-500 text-white" data-direction="1">
                         <div class="direction-content-wrapper">
                             <span class="static-text">去程往&nbsp;</span>
                             <span class="marquee-container"><span class="marquee-text">--</span></span>
                         </div>
                     </button>
-                    <button id="backDirectionButton" class="direction-button flex-1 p-0 bg-transparent text-blue-500" data-direction="2">
+                    <button id="backDirectionButton" class="direction-button flex-1 p-2 font-semibold bg-transparent text-blue-500" data-direction="2">
                         <div class="direction-content-wrapper">
                             <span class="static-text">返程往&nbsp;</span>
                             <span class="marquee-container"><span class="marquee-text">--</span></span>
@@ -367,8 +358,6 @@
             const API_URL = 'https://ibus.tbkc.gov.tw/ibus/graphql';
             const goDirectionButton = document.getElementById('goDirectionButton');
             const backDirectionButton = document.getElementById('backDirectionButton');
-            const stationListGo = document.getElementById('stationListGo');
-            const stationListBack = document.getElementById('stationListBack');
             const stationListGoContent = document.getElementById('stationListGoContent');
             const stationListBackContent = document.getElementById('stationListBackContent');
             const trackerLoading = document.getElementById('trackerLoading');
@@ -403,7 +392,6 @@
             };
 
             function decodePolyline(t){for(var n,o,u=0,l=0,r=0,d= [],h=0,i=0,a=null,c=Math.pow(10,5);u<t.length;){a=null,h=0,i=0;do a=t.charCodeAt(u++)-63,i|=(31&a)<<h,h+=5;while(a>=32);n=1&i?~(i>>1):i>>1,h=i=0;do a=t.charCodeAt(u++)-63,i|=(31&a)<<h,h+=5;while(a>=32);o=1&i?~(i>>1):i>>1,l+=n,r+=o,d.push([l/c,r/c])}return d}
-            
             function findClosestPointOnPolyline(point, polyline) {
                 let minDistanceSquared = Infinity;
                 let closestPoint = null;
@@ -422,7 +410,10 @@
                     else if (t > 1) projectedSegmentPoint = p2Projected;
                     else projectedSegmentPoint = L.point(p1Projected.x + t * (p2Projected.x - p1Projected.x), p1Projected.y + t * (p2Projected.y - p1Projected.y));
                     const distanceSquared = pointProjected.distanceTo(projectedSegmentPoint) ** 2;
-                    if (distanceSquared < minDistanceSquared) { minDistanceSquared = distanceSquared; closestPoint = projectedSegmentPoint; }
+                    if (distanceSquared < minDistanceSquared) {
+                        minDistanceSquared = distanceSquared;
+                        closestPoint = projectedSegmentPoint;
+                    }
                 }
                 return closestPoint ? map.unproject(closestPoint) : L.latLng(point);
             }
@@ -456,7 +447,7 @@
                 goDirectionButton.addEventListener('click', () => toggleDirection(1));
                 backDirectionButton.addEventListener('click', () => toggleDirection(2));
                 updateCountdownButton.addEventListener('click', () => { resetCountdown(); loadBusData(currentRouteId, false); });
-                
+
                 const dragHandle = document.getElementById('dragHandle');
                 const panel = document.getElementById('estimateTimesSection');
                 const contentWrapper = document.getElementById('content-wrapper');
@@ -488,25 +479,38 @@
             async function loadBusData(routeId, isInitial, scrollToStation = null) {
                 if (isInitial) trackerLoading.style.display = 'flex';
                 try {
-                    const response = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: GQL.QUERY_ROUTE_DETAILS, variables: { routeId } }) });
+                    const response = await fetch(API_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ query: GQL.QUERY_ROUTE_DETAILS, variables: { routeId } })
+                    });
                     const result = await response.json();
                     if (!result.data || !result.data.route) throw new Error("查無此路線");
+                    
                     currentRouteData = result.data.route;
                     updateHeaderInfo();
+
                     if (isInitial && scrollToStation && currentRouteData.stations) {
                         const targetEdge = currentRouteData.stations.edges.find(e => String(e.node.id) === String(scrollToStation) || e.node.name === scrollToStation);
                         if (targetEdge) currentDirection = targetEdge.goBack;
                     }
+
                     renderList(1, stationListGoContent);
                     renderList(2, stationListBackContent);
                     renderMap(currentRouteData);
                     updateDirectionUI();
+                    
                     if (isInitial && scrollToStation) setTimeout(() => scrollToTargetStation(scrollToStation), 500);
+
                     trackerLoading.style.display = 'none';
                     errorNotice.classList.add('hidden');
                 } catch (err) {
                     console.error(err);
-                    if (isInitial) { trackerLoading.style.display = 'none'; errorNotice.textContent = "無法載入資料，請檢查網路或路線代碼"; errorNotice.classList.remove('hidden'); }
+                    if (isInitial) {
+                        trackerLoading.style.display = 'none';
+                        errorNotice.textContent = "無法載入資料，請檢查網路或路線代碼";
+                        errorNotice.classList.remove('hidden');
+                    }
                 }
             }
 
@@ -534,7 +538,13 @@
                         card.className = 'station-item bus-card cursor-pointer';
                         card.dataset.stationId = stationId;
                         card.onclick = () => { if(st.node.lat) map.flyTo([st.node.lat, st.node.lon], 16); };
-                        card.innerHTML = `<div class="station-icon-container"><div class="station-dot ${direction === 1 ? 'go-station' : 'back-station'} bg-${direction===1?'blue':'red'}-500"></div></div><div class="station-content"><div class="flex items-center w-full"><div class="w-24 text-center mr-3"><div class="time-pill ${status.colorClass}">${status.text}</div></div><div class="flex-1 min-w-0"><p class="truncate font-medium">${st.node.name}</p></div>${status.plate ? `<span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded ml-2">${status.plate}</span>` : ''}</div></div>`;
+                        card.innerHTML = `
+                            <div class="station-icon-container"><div class="station-dot ${direction === 1 ? 'go-station' : 'back-station'} bg-${direction===1?'blue':'red'}-500"></div></div>
+                            <div class="station-content"><div class="flex items-center w-full">
+                                <div class="w-24 text-center mr-3"><div class="time-pill ${status.colorClass}">${status.text}</div></div>
+                                <div class="flex-1 min-w-0"><p class="truncate font-medium">${st.node.name}</p></div>
+                                ${status.plate ? `<span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded ml-2">${status.plate}</span>` : ''}
+                            </div></div>`;
                         container.appendChild(card);
                     } else {
                         const pill = card.querySelector('.time-pill');
@@ -554,11 +564,10 @@
                 if (estimate.comeTime) return { text: estimate.comeTime, colorClass: 'bg-slate-200 text-slate-600' };
                 if (estimate.etas && estimate.etas.length > 0) {
                     const eta = estimate.etas[0];
-                    const min = eta.etaTime;
-                    if (min === null) return { text: '未發車', colorClass: 'bg-slate-200 text-slate-600' };
-                    if (min <= 1) return { text: '進站中', colorClass: 'bg-red-100 text-red-700', plate: eta.busId };
-                    if (min <= 3) return { text: '即將抵達', colorClass: 'bg-green-100 text-green-700', plate: eta.busId };
-                    return { text: `${min} 分`, colorClass: 'bg-blue-100 text-blue-700', plate: eta.busId };
+                    if (eta.etaTime === null) return { text: '未發車', colorClass: 'bg-slate-200 text-slate-600' };
+                    if (eta.etaTime <= 1) return { text: '進站中', colorClass: 'bg-red-100 text-red-700', plate: eta.busId };
+                    if (eta.etaTime <= 3) return { text: '即將抵達', colorClass: 'bg-green-100 text-green-700', plate: eta.busId };
+                    return { text: `${eta.etaTime} 分`, colorClass: 'bg-blue-100 text-blue-700', plate: eta.busId };
                 }
                 return { text: '末班駛離', colorClass: 'bg-slate-200 text-slate-600' };
             }
@@ -567,30 +576,31 @@
                 goLayerGroup.clearLayers(); backLayerGroup.clearLayers();
                 ['go', 'back'].forEach(dir => {
                     const encoded = data.routePoint[dir];
-                    if (!encoded) return;
-                    const decoded = decodePolyline(encoded);
                     const isGo = dir === 'go';
-                    const stops = data.stations.edges.filter(e => e.goBack === (isGo ? 1 : 2)).sort((a,b)=>a.orderNo-b.orderNo);
-                    L.polyline(decoded, { color: isGo ? '#3b82f6' : '#ef4444', weight: 5, opacity: 0.7 }).addTo(isGo ? goLayerGroup : backLayerGroup);
-                    stops.forEach(st => {
+                    if (!encoded) return;
+                    const decodedPath = decodePolyline(encoded);
+                    const color = isGo ? '#3b82f6' : '#ef4444';
+                    const layerGroup = isGo ? goLayerGroup : backLayerGroup;
+                    L.polyline(decodedPath, { color, weight: 5, opacity: 0.7 }).addTo(layerGroup);
+                    data.stations.edges.filter(e => e.goBack === (isGo ? 1 : 2)).forEach(st => {
                         if (st.node.lat) {
-                            const projected = findClosestPointOnPolyline(L.latLng(st.node.lat, st.node.lon), decoded);
-                            const css = isGo ? 'go-station' : 'back-station';
-                            L.marker(projected, { icon: L.divIcon({ className: `station-number-icon ${css}`, html: `<span>${st.orderNo}</span>`, iconSize: [24, 24], iconAnchor: [12, 12] }), pane: 'stationPane' }).bindPopup(`<div class="font-bold">${st.node.name}</div><div class="text-xs">站序: ${st.orderNo}</div>`).addTo(isGo ? goLayerGroup : backLayerGroup);
+                            const projected = findClosestPointOnPolyline(L.latLng(st.node.lat, st.node.lon), decodedPath);
+                            L.marker(projected, { icon: L.divIcon({ className: `station-number-icon ${isGo ? 'go-station' : 'back-station'}`, html: `<span>${st.orderNo}</span>`, iconSize: [24, 24], iconAnchor: [12, 12] }), pane: 'stationPane' })
+                                .bindPopup(`<div class="font-bold">${st.node.name}</div><div class="text-xs">站序: ${st.orderNo}</div>`).addTo(layerGroup);
                         }
                     });
                 });
-                const active = currentDirection === 1 ? goBusLayerGroup : backBusLayerGroup;
-                active.clearLayers();
+                const activeLayer = currentDirection === 1 ? goBusLayerGroup : backBusLayerGroup;
+                activeLayer.clearLayers();
                 data.buses.edges.forEach(bus => {
                     if (bus.goBack === currentDirection) {
-                        const c = currentDirection === 1 ? '#ef4444' : '#3b82f6';
-                        L.marker([bus.node.lat, bus.node.lon], { icon: L.divIcon({ className: 'bus-marker', html: `<div style="background:${c}; color:white; width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2px solid white; box-shadow:0 2px 4px rgba(0,0,0,0.3);"><span class="material-icons-outlined" style="font-size:18px">directions_bus</span></div>`, iconSize: [30, 30] }), pane: 'busPane' }).bindPopup(`<b>車號: ${bus.node.id}</b>`).addTo(active);
+                        const color = currentDirection === 1 ? '#ef4444' : '#3b82f6';
+                        L.marker([bus.node.lat, bus.node.lon], { icon: L.divIcon({ className: 'bus-marker', html: `<div style="background:${color}; color:white; width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2px solid white; box-shadow:0 2px 4px rgba(0,0,0,0.3);"><span class="material-icons-outlined" style="font-size:18px">directions_bus</span></div>`, iconSize: [30, 30] }), pane: 'busPane' }).bindPopup(`<b>車號: ${bus.node.id}</b>`).addTo(activeLayer);
                     }
                 });
-                if (isFirstMapLoad && data.stations.edges.length) {
-                    const f = data.stations.edges.find(e => e.goBack === 1);
-                    if(f && f.node.lat) map.setView([f.node.lat, f.node.lon], 14);
+                if (isFirstMapLoad && data.stations.edges.length > 0) {
+                    const first = data.stations.edges.find(e => e.goBack === 1);
+                    if(first && first.node.lat) map.setView([first.node.lat, first.node.lon], 14);
                     isFirstMapLoad = false;
                 }
             }
@@ -598,24 +608,24 @@
             function toggleDirection(dir) {
                 if (currentDirection === dir || isAnimatingDirection) return;
                 isAnimatingDirection = true;
-                const show = dir === 1 ? stationListGo : stationListBack;
-                const hide = dir === 1 ? stationListBack : stationListGo;
-                show.classList.remove('hidden');
-                hide.classList.add(dir === 2 ? 'slide-out-left' : 'slide-out-right');
-                show.classList.add(dir === 2 ? 'slide-in-from-right' : 'slide-in-from-left');
+                const showList = dir === 1 ? document.getElementById('stationListGo') : document.getElementById('stationListBack');
+                const hideList = dir === 1 ? document.getElementById('stationListBack') : document.getElementById('stationListGo');
+                showList.classList.remove('hidden');
+                hideList.classList.add(dir === 2 ? 'slide-out-left' : 'slide-out-right');
+                showList.classList.add(dir === 2 ? 'slide-in-from-right' : 'slide-in-from-left');
                 currentDirection = dir;
                 updateDirectionUI();
-                setTimeout(() => { hide.classList.add('hidden'); hide.classList.remove('slide-out-left', 'slide-out-right'); show.classList.remove('slide-in-from-right', 'slide-in-from-left'); isAnimatingDirection = false; }, 300);
+                setTimeout(() => { hideList.classList.add('hidden'); hideList.classList.remove('slide-out-left', 'slide-out-right'); showList.classList.remove('slide-in-from-right', 'slide-in-from-left'); isAnimatingDirection = false; }, 300);
             }
 
             function updateDirectionUI() {
                 if (currentDirection === 1) {
-                    goDirectionButton.className = "direction-button flex-1 p-0 bg-blue-500 text-white";
-                    backDirectionButton.className = "direction-button flex-1 p-0 bg-transparent text-blue-500";
+                    goDirectionButton.classList.replace('bg-transparent', 'bg-blue-500'); goDirectionButton.classList.replace('text-blue-500', 'text-white');
+                    backDirectionButton.classList.replace('bg-blue-500', 'bg-transparent'); backDirectionButton.classList.replace('text-white', 'text-blue-500');
                     map.addLayer(goLayerGroup); map.removeLayer(backLayerGroup); map.addLayer(goBusLayerGroup); map.removeLayer(backBusLayerGroup);
                 } else {
-                    backDirectionButton.className = "direction-button flex-1 p-0 bg-blue-500 text-white";
-                    goDirectionButton.className = "direction-button flex-1 p-0 bg-transparent text-blue-500";
+                    backDirectionButton.classList.replace('bg-transparent', 'bg-blue-500'); backDirectionButton.classList.replace('text-blue-500', 'text-white');
+                    goDirectionButton.classList.replace('bg-blue-500', 'bg-transparent'); goDirectionButton.classList.replace('text-white', 'text-blue-500');
                     map.addLayer(backLayerGroup); map.removeLayer(goLayerGroup); map.addLayer(backBusLayerGroup); map.removeLayer(goBusLayerGroup);
                 }
             }
@@ -623,18 +633,27 @@
             function scrollToTargetStation(target) {
                 const container = currentDirection === 1 ? stationListGoContent : stationListBackContent;
                 let el = container.querySelector(`[data-station-id="${target}"]`) || Array.from(container.querySelectorAll('.station-item')).find(card => card.innerText.includes(target));
-                if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.style.backgroundColor = 'rgba(59, 130, 246, 0.1)'; setTimeout(() => el.style.backgroundColor = '', 1500); const d = currentRouteData.stations.edges.find(e => String(e.node.id) === el.dataset.stationId); if (d && d.node.lat) map.flyTo([d.node.lat, d.node.lon], 16); }
+                if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    el.style.backgroundColor = 'rgba(59, 130, 246, 0.1)'; setTimeout(() => el.style.backgroundColor = '', 1500);
+                    const st = currentRouteData.stations.edges.find(e => String(e.node.id) === el.dataset.stationId);
+                    if (st && st.node.lat) map.flyTo([st.node.lat, st.node.lon], 16);
+                }
             }
 
             function checkMarquee(el) {
-                const c = el.parentElement;
-                el.innerHTML = el.textContent; c.classList.remove('is-overflowing');
-                if (el.scrollWidth > c.clientWidth) { c.classList.add('is-overflowing'); el.innerHTML = `<span class="marquee-inner">${el.textContent}</span><span class="marquee-inner">${el.textContent}</span>`; }
+                const container = el.parentElement;
+                el.innerHTML = el.textContent; 
+                container.classList.remove('is-overflowing');
+                if (el.scrollWidth > container.clientWidth) {
+                    container.classList.add('is-overflowing');
+                    el.innerHTML = `<span class="marquee-inner">${el.textContent}</span><span class="marquee-inner">${el.textContent}</span>`;
+                }
             }
 
             let countdown = 20, timer;
             function startCountdown() { clearInterval(timer); timer = setInterval(() => { countdown--; document.getElementById('updateCountdownText').textContent = `${countdown}秒後更新`; if (countdown <= 0) { loadBusData(currentRouteId, false); resetCountdown(); } }, 1000); }
-            function resetCountdown() { countdown = 20; document.getElementById('updateCountdownText').textContent = `${countdown}秒後更新`; const i = updateCountdownButton.querySelector('.material-icons-outlined'); i.classList.add('spin-update'); setTimeout(() => i.classList.remove('spin-update'), 500); }
+            function resetCountdown() { countdown = 20; document.getElementById('updateCountdownText').textContent = `${countdown}秒後更新`; const icon = updateCountdownButton.querySelector('.material-icons-outlined'); icon.classList.add('spin-update'); setTimeout(() => icon.classList.remove('spin-update'), 500); }
 
             init();
         });
