@@ -64,7 +64,7 @@
             background-color: #fff;
             padding: 0.5rem;
             box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-            z-index: 50; /* 提高層級，確保按鈕可點擊 */
+            z-index: 50;
             position: relative;
         }
         
@@ -92,10 +92,9 @@
             padding: 0 4px;
             min-width: 0;
             cursor: pointer;
-            position: relative; /* 確保點擊範圍 */
+            position: relative;
         }
 
-        /* 讓內部元素不攔截點擊事件 */
         .direction-button > * {
             pointer-events: none;
         }
@@ -118,7 +117,6 @@
             white-space: nowrap;
             min-width: 0;
             display: block;
-            /* flex-grow 由 JS 控制: 0=置中, 1=跑馬燈 */
         }
 
         .marquee-text {
@@ -142,7 +140,6 @@
             padding-right: 2.5rem; 
         }
 
-        /* Colors */
         .btn-active {
             background-color: #3b82f6;
             color: white;
@@ -449,6 +446,8 @@
             const errorNotice = document.getElementById('errorNotice');
             const updateCountdownButton = document.getElementById('updateCountdown');
             const estimateTimesSection = document.getElementById('estimateTimesSection');
+            const stationListGo = document.getElementById('stationListGo');
+            const stationListBack = document.getElementById('stationListBack');
             
             let map = null;
             let goLayerGroup, backLayerGroup, goBusLayerGroup, backBusLayerGroup;
@@ -458,6 +457,9 @@
             let isAnimatingDirection = false;
             let isFirstMapLoad = true;
             let updateInterval = 20;
+            
+            // Map marker storage for popup access
+            let stationMarkers = {};
 
             const GQL = {
                 QUERY_ROUTE_DETAILS: `
@@ -557,7 +559,7 @@
                     const diffX = e.changedTouches[0].clientX - touchStartX;
                     const diffY = e.changedTouches[0].clientY - touchStartY;
                     if (Math.abs(diffX) > 50 && Math.abs(diffX) > Math.abs(diffY)) {
-                        if (e.cancelable) e.preventDefault(); // Prevent nav swipe only if horizontal dominant
+                        if (e.cancelable) e.preventDefault(); 
                         if (diffX < 0 && currentDirection === 1) toggleDirection(2);
                         if (diffX > 0 && currentDirection === 2) toggleDirection(1);
                     }
@@ -577,6 +579,19 @@
                     
                     currentRouteData = result.data.route;
                     
+                    // --- Auto-Direction Logic ---
+                    if (isInitial && scrollToStation && currentRouteData.stations) {
+                        const targetEdge = currentRouteData.stations.edges.find(e => String(e.node.id) === String(scrollToStation) || e.node.name === scrollToStation);
+                        if (targetEdge) {
+                            currentDirection = targetEdge.goBack;
+                            // Force UI state now so render knows what's visible
+                            if (currentDirection === 2) {
+                                stationListGo.classList.add('hidden');
+                                stationListBack.classList.remove('hidden');
+                            }
+                        }
+                    }
+
                     renderList(1, stationListGoContent);
                     renderList(2, stationListBackContent);
                     renderMap(currentRouteData);
@@ -584,9 +599,7 @@
                     
                     updateHeaderInfo();
 
-                    if (isInitial && scrollToStation && currentRouteData.stations) {
-                        const targetEdge = currentRouteData.stations.edges.find(e => String(e.node.id) === String(scrollToStation) || e.node.name === scrollToStation);
-                        if (targetEdge) currentDirection = targetEdge.goBack;
+                    if (isInitial && scrollToStation) {
                         setTimeout(() => scrollToTargetStation(scrollToStation), 500);
                     }
 
@@ -602,11 +615,11 @@
                 }
             }
 
+            // --- The Fixed Logic from Original File ---
             function checkMarqueeOverflow(container, textElement, originalText) {
                 if (!container || !textElement) return;
                 
                 textElement.dataset.originalText = originalText;
-                // 1. 撐開以測量 (重要)
                 container.style.flexGrow = '1';
                 textElement.classList.remove('is-overflowing');
                 textElement.style.animation = 'none';
@@ -630,7 +643,6 @@
                             textElement.classList.add('is-overflowing');
                         });
                     } else {
-                        // 2. 縮回以置中 (重要)
                         container.style.flexGrow = '0'; 
                         textElement.textContent = originalText; 
                         textElement.classList.remove('is-overflowing');
@@ -656,10 +668,8 @@
             function checkListMarquee(el) {
                 if(!el) return;
                 const container = el.parentElement;
-                
                 el.innerHTML = el.textContent; 
                 el.classList.remove('is-overflowing');
-                
                 if (el.scrollWidth > container.clientWidth) {
                     const text = el.textContent;
                     el.innerHTML = `<span class="marquee-inner">${text}</span><span class="marquee-inner">${text}</span>`;
@@ -686,7 +696,12 @@
                     const card = document.createElement('div');
                     card.className = 'station-item bus-card cursor-pointer';
                     card.dataset.stationId = stationId;
-                    card.onclick = () => { if(st.node.lat) map.flyTo([st.node.lat, st.node.lon], 16); };
+                    card.onclick = () => { 
+                        if(st.node.lat) {
+                            map.flyTo([st.node.lat, st.node.lon], 16);
+                            if (stationMarkers[stationId]) stationMarkers[stationId].openPopup();
+                        } 
+                    };
                     
                     card.innerHTML = `
                         <div class="station-icon-container">
@@ -729,6 +744,8 @@
 
             function renderMap(data) {
                 goLayerGroup.clearLayers(); backLayerGroup.clearLayers();
+                stationMarkers = {}; // Reset markers
+
                 ['go', 'back'].forEach(dir => {
                     const encoded = data.routePoint[dir];
                     const isGo = dir === 'go';
@@ -737,11 +754,18 @@
                     const color = isGo ? '#3b82f6' : '#ef4444';
                     const layerGroup = isGo ? goLayerGroup : backLayerGroup;
                     L.polyline(decodedPath, { color, weight: 5, opacity: 0.7 }).addTo(layerGroup);
+                    
                     data.stations.edges.filter(e => e.goBack === (isGo ? 1 : 2)).forEach(st => {
                         if (st.node.lat) {
                             const projected = findClosestPointOnPolyline(L.latLng(st.node.lat, st.node.lon), decodedPath);
-                            L.marker(projected, { icon: L.divIcon({ className: `station-number-icon ${isGo ? 'go-station' : 'back-station'}`, html: `<span>${st.orderNo}</span>`, iconSize: [24, 24], iconAnchor: [12, 12] }), pane: 'stationPane' })
-                                .bindPopup(`<div class="font-bold">${st.node.name}</div><div class="text-xs">站序: ${st.orderNo}</div>`).addTo(layerGroup);
+                            const marker = L.marker(projected, { 
+                                icon: L.divIcon({ className: `station-number-icon ${isGo ? 'go-station' : 'back-station'}`, html: `<span>${st.orderNo}</span>`, iconSize: [24, 24], iconAnchor: [12, 12] }), 
+                                pane: 'stationPane' 
+                            })
+                            .bindPopup(`<div class="font-bold">${st.node.name}</div><div class="text-xs">站序: ${st.orderNo}</div>`)
+                            .addTo(layerGroup);
+                            
+                            stationMarkers[st.node.id] = marker; // Store for popup
                         }
                     });
                 });
@@ -763,8 +787,8 @@
             function toggleDirection(dir) {
                 if (currentDirection === dir || isAnimatingDirection) return;
                 isAnimatingDirection = true;
-                const showList = dir === 1 ? document.getElementById('stationListGo') : document.getElementById('stationListBack');
-                const hideList = dir === 1 ? document.getElementById('stationListBack') : document.getElementById('stationListGo');
+                const showList = dir === 1 ? stationListGo : stationListBack;
+                const hideList = dir === 1 ? stationListBack : stationListGo;
                 showList.classList.remove('hidden');
                 hideList.classList.add(dir === 2 ? 'slide-out-left' : 'slide-out-right');
                 showList.classList.add(dir === 2 ? 'slide-in-from-right' : 'slide-in-from-left');
@@ -786,13 +810,28 @@
             }
 
             function scrollToTargetStation(target) {
-                const container = currentDirection === 1 ? document.getElementById('stationListGoContent').parentElement : document.getElementById('stationListBackContent').parentElement;
-                let el = container.querySelector(`[data-station-id="${target}"]`) || Array.from(container.querySelectorAll('.station-item')).find(card => card.innerText.includes(target));
+                const container = currentDirection === 1 ? stationListGoContent.parentElement : stationListBackContent.parentElement;
+                
+                // Try to find by ID or Name
+                let el = container.querySelector(`[data-station-id="${target}"]`);
+                if (!el) {
+                    const cards = container.querySelectorAll('.station-item');
+                    for (let c of cards) {
+                        if (c.innerText.includes(target)) { el = c; break; }
+                    }
+                }
+
                 if (el) {
                     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     el.style.backgroundColor = 'rgba(59, 130, 246, 0.1)'; setTimeout(() => el.style.backgroundColor = '', 1500);
-                    const st = currentRouteData.stations.edges.find(e => String(e.node.id) === el.dataset.stationId);
-                    if (st && st.node.lat) map.flyTo([st.node.lat, st.node.lon], 16);
+                    
+                    const stId = el.dataset.stationId;
+                    const st = currentRouteData.stations.edges.find(e => String(e.node.id) === stId);
+                    
+                    if (st && st.node.lat) {
+                        map.flyTo([st.node.lat, st.node.lon], 16);
+                        if (stationMarkers[stId]) stationMarkers[stId].openPopup();
+                    }
                 }
             }
 
