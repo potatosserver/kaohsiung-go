@@ -331,8 +331,9 @@
         }
         #updateCountdownText {
             display: inline-block;
-            min-width: 70px; /* 固定寬度，避免跳動 */
+            width: 5.2em; /* 修改：使用固定寬度取代 min-width，確保寬度完全鎖死 */
             text-align: left;
+            white-space: nowrap; /* 確保不換行 */
         }
         @keyframes spin-180 { from { transform: rotate(0deg); } to { transform: rotate(180deg); } }
         .spin-update { animation: spin-180 0.5s ease forwards; }
