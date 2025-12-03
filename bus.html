@@ -58,18 +58,19 @@
             max-width: 100%;
         }
 
-        /* --- Header & Buttons (Strict Flexbox) --- */
+        /* --- Header & Buttons --- */
         header {
             flex-shrink: 0;
             background-color: #fff;
             padding: 0.5rem;
             box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-            z-index: 20;
+            z-index: 50; /* 提高層級，確保按鈕可點擊 */
+            position: relative;
         }
         
         .direction-toggle-group {
             display: flex;
-            flex-direction: row; /* Force Row */
+            flex-direction: row;
             justify-content: center;
             width: 100%;
             gap: 8px;
@@ -78,10 +79,10 @@
         .direction-button {
             flex: 1;
             display: flex;
-            flex-direction: row; /* CRITICAL: Force contents to be side-by-side */
-            flex-wrap: nowrap; /* CRITICAL: Prevent wrapping */
+            flex-direction: row;
+            flex-wrap: nowrap;
             align-items: center;
-            justify-content: center; /* Centers content when flex-grow is 0 */
+            justify-content: center;
             overflow: hidden;
             height: 48px;
             border-radius: 0.5rem;
@@ -89,37 +90,51 @@
             font-size: 0.95rem;
             border: 2px solid transparent;
             padding: 0 4px;
-            min-width: 0; /* Allows shrinking */
+            min-width: 0;
+            cursor: pointer;
+            position: relative; /* 確保點擊範圍 */
         }
 
-        .direction-button .static-text {
-            flex-shrink: 0; /* Never shrink the "Go To" text */
+        /* 讓內部元素不攔截點擊事件 */
+        .direction-button > * {
+            pointer-events: none;
+        }
+
+        .direction-content-wrapper {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            overflow: hidden;
+        }
+
+        .static-text {
+            flex-shrink: 0;
             white-space: nowrap;
         }
 
-        .direction-button .marquee-container {
-            /* flex-grow handled by JS */
+        .marquee-container {
             overflow: hidden;
             white-space: nowrap;
-            min-width: 0; /* Allow shrinking below content size */
-            display: block; /* Ensure it behaves as a block for width calc */
+            min-width: 0;
+            display: block;
+            /* flex-grow 由 JS 控制: 0=置中, 1=跑馬燈 */
         }
 
-        .direction-button .marquee-text {
+        .marquee-text {
             display: inline-block;
             white-space: nowrap;
             will-change: transform;
         }
 
-        /* Animation */
         @keyframes marquee-scroll {
             0% { transform: translateX(0); }
             100% { transform: translateX(-50%); }
         }
 
-        .direction-button .marquee-text.is-overflowing {
+        .marquee-text.is-overflowing {
             animation: marquee-scroll 10s linear infinite;
-            padding-right: 20px; /* Space for loop */
+            padding-right: 20px;
         }
         
         .marquee-inner { 
@@ -376,16 +391,20 @@
              <header>
                 <div class="direction-toggle-group">
                     <button id="goDirectionButton" class="direction-button btn-active" data-direction="1">
-                        <span class="static-text">去程往&nbsp;</span>
-                        <span class="marquee-container">
-                            <span class="marquee-text">--</span>
-                        </span>
+                        <div class="direction-content-wrapper">
+                            <span class="static-text">去程往&nbsp;</span>
+                            <div class="marquee-container">
+                                <span class="marquee-text">--</span>
+                            </div>
+                        </div>
                     </button>
                     <button id="backDirectionButton" class="direction-button btn-inactive" data-direction="2">
-                        <span class="static-text">返程往&nbsp;</span>
-                        <span class="marquee-container">
-                            <span class="marquee-text">--</span>
-                        </span>
+                        <div class="direction-content-wrapper">
+                            <span class="static-text">返程往&nbsp;</span>
+                            <div class="marquee-container">
+                                <span class="marquee-text">--</span>
+                            </div>
+                        </div>
                     </button>
                 </div>
             </header>
@@ -532,12 +551,13 @@
 
                 // Swipe Logic
                 let touchStartX = 0, touchStartY = 0;
-                estimateTimesSection.addEventListener('touchstart', (e) => { if (e.target.closest('#dragHandle')) return; touchStartX = e.changedTouches[0].screenX; touchStartY = e.changedTouches[0].screenY; }, { passive: true });
+                estimateTimesSection.addEventListener('touchstart', (e) => { if (e.target.closest('#dragHandle')) return; touchStartX = e.changedTouches[0].clientX; touchStartY = e.changedTouches[0].clientY; }, { passive: true });
                 estimateTimesSection.addEventListener('touchend', (e) => {
                     if (e.target.closest('#dragHandle')) return;
-                    const diffX = e.changedTouches[0].screenX - touchStartX;
-                    const diffY = e.changedTouches[0].screenY - touchStartY;
+                    const diffX = e.changedTouches[0].clientX - touchStartX;
+                    const diffY = e.changedTouches[0].clientY - touchStartY;
                     if (Math.abs(diffX) > 50 && Math.abs(diffX) > Math.abs(diffY)) {
+                        if (e.cancelable) e.preventDefault(); // Prevent nav swipe only if horizontal dominant
                         if (diffX < 0 && currentDirection === 1) toggleDirection(2);
                         if (diffX > 0 && currentDirection === 2) toggleDirection(1);
                     }
@@ -557,13 +577,11 @@
                     
                     currentRouteData = result.data.route;
                     
-                    // Render UI
                     renderList(1, stationListGoContent);
                     renderList(2, stationListBackContent);
                     renderMap(currentRouteData);
                     updateDirectionUI();
                     
-                    // Update Headers with Marquee check
                     updateHeaderInfo();
 
                     if (isInitial && scrollToStation && currentRouteData.stations) {
@@ -584,13 +602,11 @@
                 }
             }
 
-            // --- 核心修復：使用原始的 JS 邏輯來控制 flex-grow ---
             function checkMarqueeOverflow(container, textElement, originalText) {
                 if (!container || !textElement) return;
                 
-                // Reset state
                 textElement.dataset.originalText = originalText;
-                // 1. 強制設定 flex-grow: 1 讓它撐開以進行測量
+                // 1. 撐開以測量 (重要)
                 container.style.flexGrow = '1';
                 textElement.classList.remove('is-overflowing');
                 textElement.style.animation = 'none';
@@ -602,7 +618,6 @@
                     const isOverflowing = textWidth > containerWidth;
                     
                     if (isOverflowing) {
-                        // 溢出：維持 flex-grow: 1 (保持寬度)，製作跑馬燈
                         const gap = '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;';
                         const unitText = `${gap}${originalText}`;
                         const fullMarqueeText = `${unitText}${unitText}`; 
@@ -615,8 +630,7 @@
                             textElement.classList.add('is-overflowing');
                         });
                     } else {
-                        // 未溢出：設定 flex-grow: 0，讓它縮回文字寬度
-                        // 配合父層 .direction-button 的 justify-content: center，這會讓它置中
+                        // 2. 縮回以置中 (重要)
                         container.style.flexGrow = '0'; 
                         textElement.textContent = originalText; 
                         textElement.classList.remove('is-overflowing');
@@ -633,14 +647,12 @@
                 const goText = currentRouteData.destination;
                 const backText = currentRouteData.departure;
                 
-                // 使用 setTimeout 確保 DOM 渲染完畢後執行 (雙重保險)
                 setTimeout(() => {
                     checkMarqueeOverflow(goMarqueeContainer, goMarqueeText, goText);
                     checkMarqueeOverflow(backMarqueeContainer, backMarqueeText, backText);
                 }, 100);
             }
 
-            // --- 列表跑馬燈 ---
             function checkListMarquee(el) {
                 if(!el) return;
                 const container = el.parentElement;
@@ -648,7 +660,6 @@
                 el.innerHTML = el.textContent; 
                 el.classList.remove('is-overflowing');
                 
-                // 檢查是否溢出容器
                 if (el.scrollWidth > container.clientWidth) {
                     const text = el.textContent;
                     el.innerHTML = `<span class="marquee-inner">${text}</span><span class="marquee-inner">${text}</span>`;
@@ -697,7 +708,6 @@
                     
                     container.appendChild(card);
                     
-                    // 檢查列表項目的跑馬燈
                     requestAnimationFrame(() => {
                         checkListMarquee(card.querySelector('.list-marquee-text'));
                     });
