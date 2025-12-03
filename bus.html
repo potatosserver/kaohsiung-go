@@ -776,3 +776,22 @@
             }
 
             function scrollToTargetStation(target) {
+                const container = currentDirection === 1 ? document.getElementById('stationListGoContent').parentElement : document.getElementById('stationListBackContent').parentElement;
+                let el = container.querySelector(`[data-station-id="${target}"]`) || Array.from(container.querySelectorAll('.station-item')).find(card => card.innerText.includes(target));
+                if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    el.style.backgroundColor = 'rgba(59, 130, 246, 0.1)'; setTimeout(() => el.style.backgroundColor = '', 1500);
+                    const st = currentRouteData.stations.edges.find(e => String(e.node.id) === el.dataset.stationId);
+                    if (st && st.node.lat) map.flyTo([st.node.lat, st.node.lon], 16);
+                }
+            }
+
+            let countdown = 20, timer;
+            function startCountdown() { clearInterval(timer); timer = setInterval(() => { countdown--; document.getElementById('updateCountdownText').textContent = `${countdown}秒後更新`; if (countdown <= 0) { loadBusData(currentRouteId, false); resetCountdown(); } }, 1000); }
+            function resetCountdown() { countdown = 20; document.getElementById('updateCountdownText').textContent = `${countdown}秒後更新`; const icon = updateCountdownButton.querySelector('.material-icons-outlined'); icon.classList.add('spin-update'); setTimeout(() => icon.classList.remove('spin-update'), 500); }
+
+            init();
+        });
+    </script>
+</body>
+</html>
