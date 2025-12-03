@@ -2,21 +2,21 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <meta name="color-scheme" content="light dark" />
-    <title>高雄公車動態</title>
-    
-    <!-- Leaflet & Tailwind -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>高雄市公車動態 - 精簡版</title>
+
+    <!-- Leaflet.js -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined&display=swap" rel="stylesheet">
-
+    
     <style>
         :root {
-            --go-color: #3b82f6; /* Blue */
-            --back-color: #ef4444; /* Red */
+            --go-color: #3b82f6;
+            --back-color: #ef4444;
         }
 
         body {
@@ -25,36 +25,123 @@
             color: #1e293b;
             user-select: none;
             height: 100vh;
-            height: 100dvh; /* Mobile viewport fix */
+            height: 100dvh;
             overflow: hidden;
             display: flex;
             flex-direction: column;
         }
 
-        /* Dark Mode Support */
-        @media (prefers-color-scheme: dark) {
-            body { background-color: #0f172a; color: #e2e8f0; }
-            .bg-white { background-color: #1e293b; }
-            .text-slate-800 { color: #e2e8f0; }
-            .text-slate-500 { color: #94a3b8; }
-            .text-slate-600 { color: #cbd5e1; }
-            /* Update Button Dark Mode */
-            #updateCountdown { background-color: #334155 !important; color: #e2e8f0 !important; border-color: #475569 !important; }
-            /* List Dividers */
-            .list-content::before { background-color: #475569 !important; }
-            /* Cards */
-            .station-content { background-color: #1e293b !important; }
-            /* Drag Handle */
-            #dragHandle { background-color: #1e293b !important; border-bottom: 1px solid #334155 !important; }
-            #dragHandle::before { background: #475569 !important; }
-            /* Map */
-            #map { background-color: #334155; }
-            /* Loading */
-            #trackerLoading { background-color: rgba(15, 23, 42, 0.8) !important; }
-            .station-icon-container { background-color: #0f172a !important; }
+        /* --- Animations --- */
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .loading-spinner {
+            border: 4px solid #e2e8f0;
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1.2s linear infinite;
         }
 
-        /* --- 核心佈局 --- */
+        /* --- Layout --- */
+        #busTrackerPage {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            width: 100%;
+        }
+        .container {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            padding: 0;
+            max-width: 100%;
+        }
+
+        /* --- Header & Buttons --- */
+        header {
+            flex-shrink: 0;
+            background-color: #fff;
+            padding: 0.75rem;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            z-index: 20;
+        }
+        
+        .direction-toggle-group {
+            display: flex;
+            width: 100%;
+            gap: 8px; /* Gap between buttons */
+        }
+
+        .direction-button {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            transition: all 0.2s;
+            height: 48px;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            font-size: 0.95rem;
+            border: 2px solid transparent; /* Prepare for border */
+        }
+
+        /* Button Colors */
+        .btn-active {
+            background-color: #3b82f6;
+            color: white;
+            border-color: #3b82f6;
+        }
+        .btn-inactive {
+            background-color: transparent;
+            color: #3b82f6;
+            border-color: #3b82f6;
+        }
+
+        /* --- Marquee Logic --- */
+        .direction-content-wrapper {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            padding: 0 4px;
+        }
+        
+        .static-text {
+            flex-shrink: 0;
+            white-space: nowrap;
+        }
+
+        .marquee-container {
+            flex: 0 1 auto; /* Allows shrinking but not growing beyond content */
+            overflow: hidden;
+            white-space: nowrap;
+            min-width: 0; /* CRITICAL: Enables flex item to shrink below content size */
+            display: flex; /* Keeps inner text properly aligned */
+        }
+
+        .marquee-text {
+            display: inline-block;
+            white-space: nowrap;
+        }
+
+        @keyframes marquee-scroll {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-50%); }
+        }
+
+        .marquee-text.is-overflowing {
+            animation: marquee-scroll 8s linear infinite;
+            padding-right: 20px; /* Space for the loop */
+        }
+        
+        .marquee-inner {
+            display: inline-block;
+            padding-right: 2.5rem; /* Gap between duplicated text */
+        }
+
+        /* --- Split View (Map/List) --- */
         #content-wrapper {
             flex-grow: 1;
             display: flex;
@@ -63,200 +150,24 @@
             position: relative;
             overflow: hidden;
         }
-
         #map {
-            width: 100%;
-            height: 40%; /* 預設高度 */
-            flex-shrink: 0;
-            background-color: #e5e7eb;
-            z-index: 0;
-        }
-
-        #estimateTimesSection {
             flex-grow: 1;
+            width: 100%;
+            background-color: #e5e7eb;
+            min-height: 35%; 
+        }
+        #estimateTimesSection {
+            flex-shrink: 0;
+            height: 55%;
             background-color: #f1f5f9;
             display: flex;
             flex-direction: column;
             position: relative;
-            z-index: 10;
             border-top: 1px solid #cbd5e1;
-            min-height: 0; /* 關鍵：允許 Flex 子元素縮小 */
+            z-index: 10;
         }
 
-        /* --- 列表樣式 --- */
-        .station-list-container {
-            flex-grow: 1;
-            overflow-y: auto; /* 允許垂直滾動 */
-            -webkit-overflow-scrolling: touch; /* iOS 慣性滾動 */
-            padding: 1rem 1rem 80px 0; /* 底部留白給更新按鈕 */
-            position: relative;
-        }
-
-        .list-content {
-            position: relative;
-            padding-left: 20px;
-        }
-        
-        /* 路線時間軸線條 */
-        .list-content::before {
-            content: '';
-            position: absolute;
-            left: 21px;
-            top: 0;
-            bottom: 0;
-            width: 2px;
-            background-color: #cbd5e1;
-            z-index: 0;
-        }
-
-        /* --- 卡片與元件 --- */
-        .station-item {
-            position: relative;
-            display: flex;
-            align-items: center;
-            margin-bottom: 12px;
-        }
-
-        .station-icon-container {
-            position: absolute;
-            left: -18px;
-            z-index: 1;
-            background-color: #f1f5f9;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 40px;
-            height: 40px;
-        }
-
-        .station-dot {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-        }
-        .station-dot.go-station { background-color: var(--go-color); }
-        .station-dot.back-station { background-color: var(--back-color); }
-
-        .station-content {
-            flex: 1;
-            padding: 12px;
-            background-color: #ffffff;
-            border-radius: 8px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            margin-left: 20px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .time-pill {
-            min-width: 80px;
-            text-align: center;
-            padding: 4px 8px;
-            border-radius: 999px;
-            font-weight: 700;
-            font-size: 0.9em;
-        }
-        /* Time Pill Colors */
-        .bg-slate-200 { background-color: #e2e8f0; color: #1e293b; }
-        .bg-red-200 { background-color: #fee2e2; color: #b91c1c; }
-        .bg-green-200 { background-color: #dcfce7; color: #166534; }
-        .bg-blue-200 { background-color: #dbeafe; color: #1e40af; }
-        /* Dark mode overrides for pills */
-        @media (prefers-color-scheme: dark) {
-            .bg-slate-200 { background-color: #334155; color: #cbd5e1; }
-            .bg-red-200 { background-color: #991b1b; color: #fecaca; }
-            .bg-green-200 { background-color: #166534; color: #dcfce7; }
-            .bg-blue-200 { background-color: #1e40af; color: #dbeafe; }
-        }
-
-        /* --- 跑馬燈動畫 --- */
-        @keyframes marquee-scroll {
-            0% { transform: translateX(0); }
-            100% { transform: translateX(-50%); }
-        }
-        .marquee-text.is-overflowing > * {
-            display: inline-block;
-            white-space: nowrap;
-            animation: marquee-scroll 8s linear infinite;
-        }
-        .marquee-inner { display: inline-block; padding-right: 2rem; }
-
-        /* --- 按鈕樣式修正 (置中 + 跑馬燈) --- */
-        .direction-button {
-            display: flex;
-            align-items: center;
-            justify-content: center; /* 讓內部 Wrapper 置中 */
-            overflow: hidden;
-            transition: all 0.2s;
-            text-align: center;
-            height: 44px; /* 增加高度便於點擊 */
-            border-radius: 0;
-        }
-        /* 內部包裝器：負責內容的排列 */
-        .direction-content-wrapper {
-            display: flex;
-            align-items: center;
-            justify-content: center; /* 文字短時置中 */
-            width: 100%;
-            max-width: 100%;
-            padding: 0 4px;
-        }
-        /* 靜態文字 "去程往" */
-        .static-text {
-            flex-shrink: 0; /* 不允許壓縮 */
-            white-space: nowrap;
-        }
-        /* 跑馬燈容器 */
-        .marquee-container { 
-            overflow: hidden; 
-            white-space: nowrap; 
-            display: block; 
-            min-width: 0; /* 關鍵：允許 Flex item 壓縮小於內容寬度 */
-            flex-shrink: 1; /* 允許壓縮 */
-        }
-
-        /* --- 更新倒數按鈕 --- */
-        #updateCountdown {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 1001;
-            padding: 8px 16px;
-            background-color: #e0f2fe;
-            color: #0f172a;
-            border-radius: 20px;
-            font-size: 0.9em;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            cursor: pointer;
-            border: 1px solid #bae6fd;
-        }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        @keyframes spin-180 { from { transform: rotate(0deg); } to { transform: rotate(180deg); } }
-        .loading-spinner { animation: spin 1s linear infinite; }
-        .spin-update { animation: spin-180 0.5s ease forwards; }
-
-        /* --- 地圖標記 --- */
-        .bus-icon {
-            display: flex; justify-content: center; align-items: center; color: white; border-radius: 50%; 
-            box-shadow: 0 2px 5px rgba(0,0,0,0.4); border: 2px solid white;
-        }
-        .bus-icon.go-bus { background-color: var(--back-color); }
-        .bus-icon.back-bus { background-color: var(--go-color); }
-        
-        .station-number-icon {
-            display: flex; justify-content: center; align-items: center; border-radius: 50%; color: white; font-weight: bold; font-size: 12px;
-            line-height: 1; border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.5);
-        }
-        .station-number-icon.go-station { background-color: var(--go-color); }
-        .station-number-icon.back-station { background-color: var(--back-color); }
-
-        /* --- 拖曳手柄 --- */
+        /* --- Drag Handle --- */
         #dragHandle {
             flex-shrink: 0;
             height: 24px;
@@ -278,446 +189,533 @@
             border-radius: 2px;
         }
 
-        /* 動畫 Classes */
+        /* --- Station List --- */
+        .list-viewport {
+            flex-grow: 1;
+            position: relative;
+            overflow: hidden;
+        }
+        .station-list-container {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            padding: 1rem 1rem 80px 0;
+        }
+        #stationListGoContent, #stationListBackContent {
+            position: relative;
+            padding-left: 20px;
+        }
+        #stationListGoContent::before, #stationListBackContent::before {
+            content: '';
+            position: absolute;
+            left: 21px; top: 0; bottom: 0;
+            width: 2px;
+            background-color: #cbd5e1;
+            z-index: 0;
+        }
+
+        /* --- List Items --- */
+        .station-item {
+            position: relative;
+            display: flex;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .station-icon-container {
+            position: absolute;
+            left: -18px;
+            z-index: 1;
+            background-color: #f1f5f9;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 40px;
+            height: 40px;
+        }
+        .station-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+        .station-dot.go-station { background-color: var(--go-color); }
+        .station-dot.back-station { background-color: var(--back-color); }
+
+        .station-content {
+            flex: 1;
+            padding: 12px;
+            background-color: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-left: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .time-pill {
+            min-width: 80px;
+            text-align: center;
+            padding: 4px 8px;
+            border-radius: 999px;
+            font-weight: 700;
+            font-size: 0.9em;
+        }
+        /* Pill Colors */
+        .bg-slate-200 { background-color: #e2e8f0; color: #1e293b; } 
+        .bg-red-200 { background-color: #fee2e2; color: #b91c1c; } 
+        .bg-green-200 { background-color: #dcfce7; color: #166534; } 
+        .bg-blue-200 { background-color: #dbeafe; color: #1e40af; }
+
+        /* --- List Transitions --- */
+        .hidden { display: none !important; }
         .slide-out-left { animation: slide-out-left 0.3s ease-out forwards; }
         .slide-in-from-right { animation: slide-in-from-right 0.3s ease-in forwards; }
         .slide-out-right { animation: slide-out-right 0.3s ease-out forwards; }
         .slide-in-from-left { animation: slide-in-from-left 0.3s ease-in forwards; }
+        
         @keyframes slide-out-left { from { transform: translateX(0); opacity: 1; } to { transform: translateX(-100%); opacity: 0; } }
         @keyframes slide-in-from-right { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
         @keyframes slide-out-right { from { transform: translateX(0); opacity: 1; } to { transform: translateX(100%); opacity: 0; } }
         @keyframes slide-in-from-left { from { transform: translateX(-100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-        .hidden { display: none !important; }
 
-        /* 橫向模式調整 */
+        /* --- Update Button --- */
+        #updateCountdown {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1001;
+            padding: 8px 16px;
+            background-color: #e0f2fe;
+            color: #0f172a;
+            border-radius: 20px;
+            font-size: 0.9em;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            border: 1px solid #bae6fd;
+        }
+        @keyframes spin-180 { from { transform: rotate(0deg); } to { transform: rotate(180deg); } }
+        .spin-update { animation: spin-180 0.5s ease forwards; }
+
+        /* --- Map Markers --- */
+        .bus-icon {
+            display: flex; justify-content: center; align-items: center; color: white; border-radius: 50%; 
+            box-shadow: 0 2px 5px rgba(0,0,0,0.4); border: 2px solid white;
+        }
+        .bus-icon.go-bus { background-color: var(--back-color); }
+        .bus-icon.back-bus { background-color: var(--go-color); }
+        
+        .station-number-icon {
+            display: flex; justify-content: center; align-items: center; border-radius: 50%; color: white; font-weight: bold; font-size: 12px;
+            line-height: 1; border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+        }
+        .station-number-icon.go-station { background-color: var(--go-color); }
+        .station-number-icon.back-station { background-color: var(--back-color); }
+
+        /* --- Dark Mode --- */
+        @media (prefers-color-scheme: dark) {
+            body { background-color: #0f172a; color: #e2e8f0; }
+            header { background-color: #1e293b; }
+            .bg-white { background-color: #1e293b; }
+            .text-slate-800 { color: #e2e8f0; }
+            .text-slate-500 { color: #94a3b8; }
+            #map { background-color: #334155; }
+            #estimateTimesSection { background-color: #0f172a; border-top-color: #334155; }
+            #dragHandle { background-color: #1e293b; border-bottom-color: #334155; }
+            #dragHandle::before { background: #475569; }
+            .station-icon-container { background-color: #0f172a; }
+            .station-content { background-color: #1e293b; color: #e2e8f0; }
+            #stationListGoContent::before, #stationListBackContent::before { background-color: #475569; }
+            #updateCountdown { background-color: #334155; color: #e2e8f0; border-color: #475569; }
+            .btn-active { background-color: #3b82f6; color: #e2e8f0; }
+            .btn-inactive { color: #3b82f6; border-color: #3b82f6; }
+            .time-pill.bg-slate-200 { background-color: #334155; color: #cbd5e1; }
+            .time-pill.bg-red-200 { background-color: #991b1b; color: #fecaca; }
+            .time-pill.bg-green-200 { background-color: #166534; color: #dcfce7; }
+            .time-pill.bg-blue-200 { background-color: #1e40af; color: #dbeafe; }
+        }
+
+        /* --- Landscape Fix --- */
         @media (orientation: landscape) {
              #content-wrapper { flex-direction: row; }
-             #map { height: 100% !important; width: 60%; order: 2; }
-             #estimateTimesSection { width: 40%; height: 100% !important; order: 1; border-top: none; border-right: 1px solid #cbd5e1; }
+             #map { height: 100%; order: 2; }
+             #estimateTimesSection { 
+                 width: 400px; 
+                 height: 100% !important; 
+                 order: 1; 
+                 border-top: none;
+                 border-right: 1px solid #cbd5e1;
+             }
              #dragHandle { display: none; }
         }
     </style>
 </head>
 <body>
-    
-    <!-- 頂部按鈕區 -->
-    <header class="p-2 bg-white dark:bg-slate-800 shadow-sm z-20 flex-shrink-0">
-        <div class="flex w-full gap-2"> <!-- Gap 2 創造中間空隙 -->
-            <button id="goDirectionButton" class="direction-button flex-1 rounded-lg font-semibold bg-blue-500 text-white" data-direction="1">
-                <div class="direction-content-wrapper">
-                    <span class="static-text">去程往&nbsp;</span>
-                    <span class="marquee-container"><span class="marquee-text">--</span></span>
+    <div id="busTrackerPage">
+        <div class="container mx-auto">
+             <!-- Header -->
+             <header>
+                <div class="direction-toggle-group">
+                    <button id="goDirectionButton" class="direction-button btn-active" data-direction="1">
+                        <div class="direction-content-wrapper">
+                            <span class="static-text">去程往&nbsp;</span>
+                            <div class="marquee-container">
+                                <span class="marquee-text">--</span>
+                            </div>
+                        </div>
+                    </button>
+                    <button id="backDirectionButton" class="direction-button btn-inactive" data-direction="2">
+                        <div class="direction-content-wrapper">
+                            <span class="static-text">返程往&nbsp;</span>
+                            <div class="marquee-container">
+                                <span class="marquee-text">--</span>
+                            </div>
+                        </div>
+                    </button>
                 </div>
-            </button>
-            <button id="backDirectionButton" class="direction-button flex-1 rounded-lg font-semibold bg-transparent text-blue-500 border border-blue-500" data-direction="2">
-                <div class="direction-content-wrapper">
-                    <span class="static-text">返程往&nbsp;</span>
-                    <span class="marquee-container"><span class="marquee-text">--</span></span>
-                </div>
-            </button>
-        </div>
-    </header>
-
-    <!-- 內容區 (地圖 + 列表) -->
-    <div id="content-wrapper">
-        <div id="map"></div>
-        
-        <div id="estimateTimesSection">
-            <div id="dragHandle"></div>
+            </header>
             
-            <!-- Loading -->
-            <div id="trackerLoading" class="absolute inset-0 bg-white/80 z-30 flex items-center justify-center flex-col">
-                <div class="loading-spinner border-4 border-slate-200 border-t-blue-500 rounded-full w-10 h-10"></div>
-                <p class="mt-4 text-slate-600 text-sm">正在載入...</p>
-            </div>
-
-            <!-- Error Message -->
-            <p id="errorNotice" class="absolute inset-0 flex items-center justify-center text-slate-500 hidden text-center px-4 pointer-events-none z-40"></p>
-
-            <!-- 列表容器 -->
-            <div id="stationListGo" class="station-list-container">
-                <div id="stationListGoContent" class="list-content"></div>
-            </div>
-            <div id="stationListBack" class="station-list-container hidden">
-                <div id="stationListBackContent" class="list-content"></div>
+            <div id="content-wrapper">
+                <div id="map"></div>
+                <div id="estimateTimesSection">
+                    <div id="dragHandle"></div>
+                    <div class="list-viewport">
+                         <div id="trackerLoading" class="absolute inset-0 bg-white/80 dark:bg-slate-900/80 z-20 flex items-center justify-center flex-col">
+                            <div class="loading-spinner mx-auto"></div>
+                            <p class="mt-4 text-slate-600 dark:text-slate-400 text-sm">正在載入路線動態...</p>
+                        </div>
+                        
+                        <div id="stationListGo" class="station-list-container">
+                            <div id="stationListGoContent"></div>
+                        </div>
+                        <div id="stationListBack" class="station-list-container hidden">
+                            <div id="stationListBackContent"></div>
+                        </div>
+                        
+                         <p id="errorNotice" class="absolute inset-0 flex items-center justify-center text-slate-500 hidden text-center px-4 pointer-events-none"></p>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- 更新按鈕 -->
     <button id="updateCountdown">
         <span class="material-icons-outlined text-lg">autorenew</span>
         <span id="updateCountdownText">20秒後更新</span>
     </button>
-
+    
     <script>
         document.addEventListener('DOMContentLoaded', async () => {
             const API_URL = 'https://ibus.tbkc.gov.tw/ibus/graphql';
+            const goDirectionButton = document.getElementById('goDirectionButton');
+            const backDirectionButton = document.getElementById('backDirectionButton');
+            const stationListGoContent = document.getElementById('stationListGoContent');
+            const stationListBackContent = document.getElementById('stationListBackContent');
+            const trackerLoading = document.getElementById('trackerLoading');
+            const errorNotice = document.getElementById('errorNotice');
+            const updateCountdownButton = document.getElementById('updateCountdown');
+            const estimateTimesSection = document.getElementById('estimateTimesSection');
             
-            // DOM Elements
-            const goBtn = document.getElementById('goDirectionButton');
-            const backBtn = document.getElementById('backDirectionButton');
-            const listGo = document.getElementById('stationListGo');
-            const listBack = document.getElementById('stationListBack');
-            const contentGo = document.getElementById('stationListGoContent');
-            const contentBack = document.getElementById('stationListBackContent');
-            const loadingEl = document.getElementById('trackerLoading');
-            const errorEl = document.getElementById('errorNotice');
-            const countdownBtn = document.getElementById('updateCountdown');
-            const sectionEl = document.getElementById('estimateTimesSection');
-            
-            // State
             let map = null;
-            let layers = { go: null, back: null, goBus: null, backBus: null };
+            let goLayerGroup, backLayerGroup, goBusLayerGroup, backBusLayerGroup;
             let currentRouteId = null;
-            let currentDirection = 1; // 1: Go, 2: Back
-            let routeData = null;
-            let isAnimating = false;
-            let firstLoad = true;
-            let countdown = 20;
-            let timer = null;
+            let currentDirection = 1;
+            let currentRouteData = null;
+            let isAnimatingDirection = false;
+            let isFirstMapLoad = true;
+            let updateInterval = 20;
 
-            // GraphQL Query
-            const QUERY = `
-                query getRoute($routeId: Int!) {
-                    route(xno: $routeId, lang: "zh") {
-                        opType, departure, destination, name, description
-                        routePoint { go, back }
-                        estimateTimes { edges { node { id, goBack, comeTime, etas { busId, etaTime } } } }
-                        stations { edges { goBack, orderNo, node { id, name, lat, lon } } }
-                        buses { edges { goBack, node { id, lat, lon } } }
+            const GQL = {
+                QUERY_ROUTE_DETAILS: `
+                    fragment estimateTimesFragment on EstimateTimeConnection { edges { node { id, goBack, comeTime, etas { busId, etaTime } } } }
+                    fragment mapMarkerStationsFragment on RouteStationConnection { edges { goBack, orderNo, node { id, name, lat, lon } } }
+                    fragment busesFragment on RouteBusConnection { edges { goBack, node { id, lat, lon } } }
+                    query QUERY_ROUTE_FOR_MAP_CONTENT($routeId: Int!) {
+                        route(xno: $routeId, lang: "zh") {
+                            opType, departure, destination, name, description
+                            routePoint { go, back }
+                            estimateTimes { ...estimateTimesFragment }
+                            stations { ...mapMarkerStationsFragment }
+                            buses { ...busesFragment }
+                        }
+                    }
+                `
+            };
+
+            function decodePolyline(t){for(var n,o,u=0,l=0,r=0,d= [],h=0,i=0,a=null,c=Math.pow(10,5);u<t.length;){a=null,h=0,i=0;do a=t.charCodeAt(u++)-63,i|=(31&a)<<h,h+=5;while(a>=32);n=1&i?~(i>>1):i>>1,h=i=0;do a=t.charCodeAt(u++)-63,i|=(31&a)<<h,h+=5;while(a>=32);o=1&i?~(i>>1):i>>1,l+=n,r+=o,d.push([l/c,r/c])}return d}
+            
+            function findClosestPointOnPolyline(point, polyline) {
+                let minDistanceSquared = Infinity;
+                let closestPoint = null;
+                if (!map || !polyline || polyline.length < 2) return L.latLng(point);
+                const pointProjected = map.project(point);
+                for (let i = 0; i < polyline.length - 1; i++) {
+                    const p1 = L.latLng(polyline[i]);
+                    const p2 = L.latLng(polyline[i+1]);
+                    const p1Projected = map.project(p1);
+                    const p2Projected = map.project(p2);
+                    const segmentLengthSquared = p1Projected.distanceTo(p2Projected) ** 2;
+                    if (segmentLengthSquared === 0) continue;
+                    const t = ((pointProjected.x - p1Projected.x) * (p2Projected.x - p1Projected.x) + (pointProjected.y - p1Projected.y) * (p2Projected.y - p1Projected.y)) / segmentLengthSquared;
+                    let projectedSegmentPoint;
+                    if (t < 0) projectedSegmentPoint = p1Projected;
+                    else if (t > 1) projectedSegmentPoint = p2Projected;
+                    else projectedSegmentPoint = L.point(p1Projected.x + t * (p2Projected.x - p1Projected.x), p1Projected.y + t * (p2Projected.y - p1Projected.y));
+                    const distanceSquared = pointProjected.distanceTo(projectedSegmentPoint) ** 2;
+                    if (distanceSquared < minDistanceSquared) {
+                        minDistanceSquared = distanceSquared;
+                        closestPoint = projectedSegmentPoint;
                     }
                 }
-            `;
-
-            // --- Map Utilities ---
-            function decodePolyline(t){for(var n,o,u=0,l=0,r=0,d=[],h=0,i=0,a=null,c=1e5;u<t.length;){a=null,h=0,i=0;do a=t.charCodeAt(u++)-63,i|=(31&a)<<h,h+=5;while(a>=32);n=1&i?~(i>>1):i>>1,h=i=0;do a=t.charCodeAt(u++)-63,i|=(31&a)<<h,h+=5;while(a>=32);o=1&i?~(i>>1):i>>1,l+=n,r+=o,d.push([l/c,r/c])}return d}
-            
-            function findClosestPoint(pt, poly) {
-                if (!map || !poly || poly.length < 2) return L.latLng(pt);
-                let minDst = Infinity, closest = null;
-                const p = map.project(pt);
-                for (let i=0; i<poly.length-1; i++) {
-                    const p1 = map.project(L.latLng(poly[i])), p2 = map.project(L.latLng(poly[i+1]));
-                    const len2 = p1.distanceTo(p2)**2;
-                    if (len2 === 0) continue;
-                    const t = Math.max(0, Math.min(1, ((p.x-p1.x)*(p2.x-p1.x)+(p.y-p1.y)*(p2.y-p1.y))/len2));
-                    const proj = L.point(p1.x+t*(p2.x-p1.x), p1.y+t*(p2.y-p1.y));
-                    const dst = p.distanceTo(proj)**2;
-                    if (dst < minDst) { minDst = dst; closest = proj; }
-                }
-                return closest ? map.unproject(closest) : L.latLng(pt);
+                return closestPoint ? map.unproject(closestPoint) : L.latLng(point);
             }
 
-            // --- Initialization ---
             async function init() {
-                // Map Init
-                map = L.map('map', { zoomControl: false }).setView([22.6273, 120.3014], 13);
+                map = L.map('map').setView([22.6273, 120.3014], 13);
                 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
                 map.createPane('routePane').style.zIndex = 350;
                 map.createPane('stationPane').style.zIndex = 450;
                 map.createPane('busPane').style.zIndex = 550;
-                
-                layers.go = L.layerGroup().addTo(map);
-                layers.back = L.layerGroup();
-                layers.goBus = L.layerGroup().addTo(map);
-                layers.backBus = L.layerGroup();
+                goLayerGroup = L.layerGroup().addTo(map);
+                backLayerGroup = L.layerGroup();
+                goBusLayerGroup = L.layerGroup().addTo(map);
+                backBusLayerGroup = L.layerGroup();
 
-                // URL Params
-                const params = new URLSearchParams(location.search);
-                const routeId = params.get('route');
-                const stationId = params.get('station');
+                const urlParams = new URLSearchParams(window.location.search);
+                const routeIdParam = urlParams.get('route');
+                const stationParam = urlParams.get('station');
 
-                if (!routeId) {
-                    loadingEl.style.display = 'none';
-                    errorEl.textContent = "請提供路線參數 (?route=ID)";
-                    errorEl.classList.remove('hidden');
-                    return;
+                if (routeIdParam) {
+                    currentRouteId = parseInt(routeIdParam);
+                    await loadBusData(currentRouteId, true, stationParam);
+                    startCountdown();
+                } else {
+                    trackerLoading.style.display = 'none';
+                    errorNotice.textContent = "請在網址列輸入路線代碼 (例如 ?route=100)";
+                    errorNotice.classList.remove('hidden');
+                    updateCountdownButton.style.display = 'none';
                 }
 
-                currentRouteId = parseInt(routeId);
-                
-                // Bind Events
-                goBtn.addEventListener('click', () => switchDir(1));
-                backBtn.addEventListener('click', () => switchDir(2));
-                countdownBtn.addEventListener('click', () => { resetTimer(); fetchData(false); });
-                setupDragHandle();
-                setupSwipe();
+                goDirectionButton.addEventListener('click', () => toggleDirection(1));
+                backDirectionButton.addEventListener('click', () => toggleDirection(2));
+                updateCountdownButton.addEventListener('click', () => { resetCountdown(); loadBusData(currentRouteId, false); });
 
-                await fetchData(true, stationId);
-                startTimer();
+                // Drag Logic
+                const dragHandle = document.getElementById('dragHandle');
+                const panel = document.getElementById('estimateTimesSection');
+                const contentWrapper = document.getElementById('content-wrapper');
+                let isDragging = false, startY, startHeight;
+
+                dragHandle.addEventListener('touchstart', (e) => { isDragging = true; startY = e.touches[0].clientY; startHeight = panel.offsetHeight; e.preventDefault(); }, { passive: false });
+                document.addEventListener('touchmove', (e) => {
+                    if (!isDragging) return;
+                    const deltaY = startY - e.touches[0].clientY;
+                    const newHeight = Math.min(Math.max(startHeight + deltaY, 100), contentWrapper.offsetHeight - 100);
+                    panel.style.height = `${newHeight}px`;
+                    map.invalidateSize();
+                }, { passive: true });
+                document.addEventListener('touchend', () => { isDragging = false; });
+
+                // Swipe Logic
+                let touchStartX = 0, touchStartY = 0;
+                estimateTimesSection.addEventListener('touchstart', (e) => { if (e.target.closest('#dragHandle')) return; touchStartX = e.changedTouches[0].screenX; touchStartY = e.changedTouches[0].screenY; }, { passive: true });
+                estimateTimesSection.addEventListener('touchend', (e) => {
+                    if (e.target.closest('#dragHandle')) return;
+                    const diffX = e.changedTouches[0].screenX - touchStartX;
+                    const diffY = e.changedTouches[0].screenY - touchStartY;
+                    if (Math.abs(diffX) > 50 && Math.abs(diffX) > Math.abs(diffY)) {
+                        if (diffX < 0 && currentDirection === 1) toggleDirection(2);
+                        if (diffX > 0 && currentDirection === 2) toggleDirection(1);
+                    }
+                }, { passive: true });
             }
 
-            // --- Logic ---
-            async function fetchData(initial, scrollTarget) {
-                if(initial) loadingEl.style.display = 'flex';
+            async function loadBusData(routeId, isInitial, scrollToStation = null) {
+                if (isInitial) trackerLoading.style.display = 'flex';
                 try {
-                    const res = await fetch(API_URL, {
+                    const response = await fetch(API_URL, {
                         method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ query: QUERY, variables: { routeId: currentRouteId } })
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ query: GQL.QUERY_ROUTE_DETAILS, variables: { routeId } })
                     });
-                    const json = await res.json();
-                    if (!json.data || !json.data.route) throw new Error("查無路線資料");
+                    const result = await response.json();
+                    if (!result.data || !result.data.route) throw new Error("查無此路線");
                     
-                    routeData = json.data.route;
-                    
-                    // Decide Initial Direction
-                    if (initial && scrollTarget) {
-                        const target = routeData.stations.edges.find(e => String(e.node.id) === String(scrollTarget) || e.node.name === scrollTarget);
-                        if (target) currentDirection = target.goBack;
+                    currentRouteData = result.data.route;
+                    updateHeaderInfo();
+
+                    if (isInitial && scrollToStation && currentRouteData.stations) {
+                        const targetEdge = currentRouteData.stations.edges.find(e => String(e.node.id) === String(scrollToStation) || e.node.name === scrollToStation);
+                        if (targetEdge) currentDirection = targetEdge.goBack;
                     }
 
-                    updateHeader();
-                    renderList(1, contentGo);
-                    renderList(2, contentBack);
-                    renderMap();
-                    updateUI();
+                    renderList(1, stationListGoContent);
+                    renderList(2, stationListBackContent);
+                    renderMap(currentRouteData);
+                    updateDirectionUI();
+                    
+                    if (isInitial && scrollToStation) setTimeout(() => scrollToTargetStation(scrollToStation), 500);
 
-                    if (initial && scrollTarget) {
-                        setTimeout(() => scrollToStation(scrollTarget), 600);
-                    }
-                    loadingEl.style.display = 'none';
-                } catch(e) {
-                    console.error(e);
-                    if(initial) {
-                        loadingEl.style.display = 'none';
-                        errorEl.textContent = "載入失敗";
-                        errorEl.classList.remove('hidden');
+                    trackerLoading.style.display = 'none';
+                    errorNotice.classList.add('hidden');
+                } catch (err) {
+                    console.error(err);
+                    if (isInitial) {
+                        trackerLoading.style.display = 'none';
+                        errorNotice.textContent = "無法載入資料，請檢查網路或路線代碼";
+                        errorNotice.classList.remove('hidden');
                     }
                 }
             }
 
-            function updateHeader() {
-                const goText = goBtn.querySelector('.marquee-text');
-                const backText = backBtn.querySelector('.marquee-text');
-                goText.textContent = routeData.destination;
-                backText.textContent = routeData.departure;
-                // Force check
-                checkMarquee(goText);
-                checkMarquee(backText);
+            function updateHeaderInfo() {
+                const goTextEl = goDirectionButton.querySelector('.marquee-text');
+                const backTextEl = backDirectionButton.querySelector('.marquee-text');
+                
+                goTextEl.textContent = currentRouteData.destination;
+                backTextEl.textContent = currentRouteData.departure;
+                
+                requestAnimationFrame(() => {
+                    checkMarquee(goTextEl);
+                    checkMarquee(backTextEl);
+                });
             }
 
             function checkMarquee(el) {
-                const container = el.parentElement;
-                // Reset
-                el.innerHTML = el.textContent; 
-                container.classList.remove('is-overflowing');
-                // Check overflow
-                if (el.scrollWidth > container.clientWidth) {
-                    container.classList.add('is-overflowing');
-                    const txt = el.textContent;
-                    el.innerHTML = `<span class="marquee-inner">${txt}</span><span class="marquee-inner">${txt}</span>`;
-                }
-            }
-
-            function renderList(dir, container) {
-                const stations = routeData.stations.edges.filter(e => e.goBack === dir).sort((a,b) => a.orderNo - b.orderNo);
-                const estimates = new Map(routeData.estimateTimes.edges.filter(e => e.node.goBack === dir).map(e => [e.node.id, e.node]));
+                const container = el.parentElement; // .marquee-container
+                const text = el.textContent.trim(); // Get raw text
                 
-                if (stations.length === 0) { container.innerHTML = '<div class="p-4 text-center text-slate-500">無站點資料</div>'; return; }
+                // Reset to raw text to measure natural width
+                el.innerHTML = text; 
+                el.classList.remove('is-overflowing');
+                el.parentElement.classList.remove('is-overflowing'); // Clean up
 
-                container.innerHTML = stations.map(st => {
-                    const est = estimates.get(st.node.id);
-                    const status = getStatus(est);
-                    const isGo = dir === 1;
-                    return `
-                    <div class="station-item cursor-pointer" onclick="panMap(${st.node.lat}, ${st.node.lon})" data-id="${st.node.id}">
-                        <div class="station-icon-container">
-                            <div class="station-dot ${isGo ? 'go-station' : 'back-station'}"></div>
-                        </div>
-                        <div class="station-content">
-                            <div class="flex items-center w-full">
-                                <div class="w-24 text-center mr-3">
-                                    <div class="time-pill ${status.color}">${status.text}</div>
-                                </div>
-                                <div class="flex-1 min-w-0">
-                                    <p class="truncate font-medium text-slate-800 dark:text-slate-200">${st.node.name}</p>
-                                </div>
-                                ${status.plate ? `<span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded ml-2">${status.plate}</span>` : ''}
-                            </div>
-                        </div>
-                    </div>`;
-                }).join('');
-            }
-
-            function getStatus(est) {
-                if (!est) return { text: '末班駛離', color: 'bg-slate-200' };
-                if (est.comeTime) return { text: est.comeTime, color: 'bg-slate-200' };
-                if (est.etas?.length) {
-                    const t = est.etas[0].etaTime;
-                    const id = est.etas[0].busId;
-                    if (t === null) return { text: '未發車', color: 'bg-slate-200' };
-                    if (t <= 1) return { text: '進站中', color: 'bg-red-200', plate: id };
-                    if (t <= 3) return { text: '即將抵達', color: 'bg-green-200', plate: id };
-                    return { text: `${t} 分`, color: 'bg-blue-200', plate: id };
+                // Logic: If content width > container width (which is flexed)
+                if (el.scrollWidth > container.clientWidth) {
+                    el.classList.add('is-overflowing');
+                    // Create duplicated content for seamless loop
+                    el.innerHTML = `<span class="marquee-inner">${text}</span><span class="marquee-inner">${text}</span>`;
                 }
-                return { text: '末班駛離', color: 'bg-slate-200' };
             }
 
-            function renderMap() {
-                layers.go.clearLayers(); layers.back.clearLayers();
-                layers.goBus.clearLayers(); layers.backBus.clearLayers();
+            function renderList(direction, container) {
+                const stations = currentRouteData.stations.edges.filter(e => e.goBack === direction).sort((a, b) => a.orderNo - b.orderNo);
+                const estimates = new Map(currentRouteData.estimateTimes.edges.filter(e => e.node.goBack === direction).map(e => [e.node.id, e.node]));
+                if (stations.length === 0) { container.innerHTML = '<p class="text-center py-4 text-slate-500">此方向無站點資料</p>'; return; }
+                
+                // Clear existing content safely if needed, or use simple diffing (here clearing for simplicity in this version)
+                container.innerHTML = '';
 
-                ['go', 'back'].forEach(k => {
-                    const dir = k === 'go' ? 1 : 2;
-                    const pathCode = routeData.routePoint[k];
-                    if (!pathCode) return;
+                stations.forEach(st => {
+                    const stationId = st.node.id;
+                    const estimate = estimates.get(stationId);
+                    const status = getStatus(estimate);
                     
-                    const points = decodePolyline(pathCode);
-                    const color = k === 'go' ? '#3b82f6' : '#ef4444';
-                    const group = layers[k];
+                    const card = document.createElement('div');
+                    card.className = 'station-item bus-card cursor-pointer';
+                    card.dataset.stationId = stationId;
+                    card.onclick = () => { if(st.node.lat) map.flyTo([st.node.lat, st.node.lon], 16); };
+                    card.innerHTML = `
+                        <div class="station-icon-container"><div class="station-dot ${direction === 1 ? 'go-station' : 'back-station'}"></div></div>
+                        <div class="station-content"><div class="flex items-center w-full">
+                            <div class="w-24 text-center mr-3"><div class="time-pill ${status.colorClass}">${status.text}</div></div>
+                            <div class="flex-1 min-w-0"><p class="truncate font-medium">${st.node.name}</p></div>
+                            ${status.plate ? `<span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded ml-2">${status.plate}</span>` : ''}
+                        </div></div>`;
+                    container.appendChild(card);
+                });
+            }
 
-                    L.polyline(points, { color, weight: 5, opacity: 0.8 }).addTo(group);
+            function getStatus(estimate) {
+                if (!estimate) return { text: '末班駛離', colorClass: 'bg-slate-200' };
+                if (estimate.comeTime) return { text: estimate.comeTime, colorClass: 'bg-slate-200' };
+                if (estimate.etas && estimate.etas.length > 0) {
+                    const eta = estimate.etas[0];
+                    if (eta.etaTime === null) return { text: '未發車', colorClass: 'bg-slate-200' };
+                    if (eta.etaTime <= 1) return { text: '進站中', colorClass: 'bg-red-200', plate: eta.busId };
+                    if (eta.etaTime <= 3) return { text: '即將抵達', colorClass: 'bg-green-200', plate: eta.busId };
+                    return { text: `${eta.etaTime} 分`, colorClass: 'bg-blue-200', plate: eta.busId };
+                }
+                return { text: '末班駛離', colorClass: 'bg-slate-200' };
+            }
 
-                    routeData.stations.edges.filter(e => e.goBack === dir).forEach(st => {
+            function renderMap(data) {
+                goLayerGroup.clearLayers(); backLayerGroup.clearLayers();
+                ['go', 'back'].forEach(dir => {
+                    const encoded = data.routePoint[dir];
+                    const isGo = dir === 'go';
+                    if (!encoded) return;
+                    const decodedPath = decodePolyline(encoded);
+                    const color = isGo ? '#3b82f6' : '#ef4444';
+                    const layerGroup = isGo ? goLayerGroup : backLayerGroup;
+                    L.polyline(decodedPath, { color, weight: 5, opacity: 0.7 }).addTo(layerGroup);
+                    data.stations.edges.filter(e => e.goBack === (isGo ? 1 : 2)).forEach(st => {
                         if (st.node.lat) {
-                            const latlng = L.latLng(st.node.lat, st.node.lon);
-                            const proj = findClosestPoint(latlng, points);
-                            const icon = L.divIcon({
-                                className: `station-number-icon ${k==='go'?'go-station':'back-station'}`,
-                                html: `<span>${st.orderNo}</span>`,
-                                iconSize: [24, 24], iconAnchor: [12, 12]
-                            });
-                            L.marker(proj, { icon, pane: 'stationPane' }).bindPopup(st.node.name).addTo(group);
+                            const projected = findClosestPointOnPolyline(L.latLng(st.node.lat, st.node.lon), decodedPath);
+                            L.marker(projected, { icon: L.divIcon({ className: `station-number-icon ${isGo ? 'go-station' : 'back-station'}`, html: `<span>${st.orderNo}</span>`, iconSize: [24, 24], iconAnchor: [12, 12] }), pane: 'stationPane' })
+                                .bindPopup(`<div class="font-bold">${st.node.name}</div><div class="text-xs">站序: ${st.orderNo}</div>`).addTo(layerGroup);
                         }
                     });
                 });
-
-                routeData.buses.edges.forEach(b => {
-                    const k = b.goBack === 1 ? 'goBus' : 'backBus';
-                    const color = b.goBack === 1 ? '#ef4444' : '#3b82f6'; // Contrast
-                    const icon = L.divIcon({
-                        className: 'bus-icon',
-                        html: `<span class="material-icons-outlined" style="font-size:20px; color:${color}">directions_bus</span>`,
-                        className: `bus-icon ${b.goBack === 1 ? 'go-bus' : 'back-bus'}`,
-                        html: `<span class="material-icons-outlined" style="font-size:22px">directions_bus</span>`,
-                        iconSize: [32, 32], iconAnchor: [16, 16]
-                    });
-                    L.marker([b.node.lat, b.node.lon], { icon, pane: 'busPane' }).addTo(layers[k]);
+                const activeLayer = currentDirection === 1 ? goBusLayerGroup : backBusLayerGroup;
+                activeLayer.clearLayers();
+                data.buses.edges.forEach(bus => {
+                    if (bus.goBack === currentDirection) {
+                        const color = currentDirection === 1 ? '#ef4444' : '#3b82f6';
+                        L.marker([bus.node.lat, bus.node.lon], { icon: L.divIcon({ className: 'bus-marker', html: `<div style="background:${color}; color:white; width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2px solid white; box-shadow:0 2px 4px rgba(0,0,0,0.3);"><span class="material-icons-outlined" style="font-size:18px">directions_bus</span></div>`, iconSize: [30, 30] }), pane: 'busPane' }).bindPopup(`<b>車號: ${bus.node.id}</b>`).addTo(activeLayer);
+                    }
                 });
-
-                if (firstLoad) {
-                    const start = routeData.stations.edges.find(e => e.goBack === 1);
-                    if (start) map.setView([start.node.lat, start.node.lon], 14);
-                    firstLoad = false;
+                if (isFirstMapLoad && data.stations.edges.length > 0) {
+                    const first = data.stations.edges.find(e => e.goBack === 1);
+                    if(first && first.node.lat) map.setView([first.node.lat, first.node.lon], 14);
+                    isFirstMapLoad = false;
                 }
             }
 
-            function switchDir(dir) {
-                if (currentDirection === dir || isAnimating) return;
-                isAnimating = true;
-                
-                const show = dir === 1 ? listGo : listBack;
-                const hide = dir === 1 ? listBack : listGo;
-                
-                show.classList.remove('hidden');
-                hide.classList.add(dir === 2 ? 'slide-out-left' : 'slide-out-right');
-                show.classList.add(dir === 2 ? 'slide-in-from-right' : 'slide-in-from-left');
-                
+            function toggleDirection(dir) {
+                if (currentDirection === dir || isAnimatingDirection) return;
+                isAnimatingDirection = true;
+                const showList = dir === 1 ? document.getElementById('stationListGo') : document.getElementById('stationListBack');
+                const hideList = dir === 1 ? document.getElementById('stationListBack') : document.getElementById('stationListGo');
+                showList.classList.remove('hidden');
+                hideList.classList.add(dir === 2 ? 'slide-out-left' : 'slide-out-right');
+                showList.classList.add(dir === 2 ? 'slide-in-from-right' : 'slide-in-from-left');
                 currentDirection = dir;
-                updateUI();
-
-                setTimeout(() => {
-                    hide.classList.add('hidden');
-                    hide.classList.remove('slide-out-left', 'slide-out-right');
-                    show.classList.remove('slide-in-from-right', 'slide-in-from-left');
-                    isAnimating = false;
-                }, 300);
+                updateDirectionUI();
+                setTimeout(() => { hideList.classList.add('hidden'); hideList.classList.remove('slide-out-left', 'slide-out-right'); showList.classList.remove('slide-in-from-right', 'slide-in-from-left'); isAnimatingDirection = false; }, 300);
             }
 
-            function updateUI() {
-                // Update Button Styles
+            function updateDirectionUI() {
                 if (currentDirection === 1) {
-                    goBtn.className = "direction-button flex-1 rounded-lg font-semibold bg-blue-500 text-white";
-                    backBtn.className = "direction-button flex-1 rounded-lg font-semibold bg-transparent text-blue-500 border border-blue-500";
-                    map.addLayer(layers.go); map.removeLayer(layers.back);
-                    map.addLayer(layers.goBus); map.removeLayer(layers.backBus);
+                    goDirectionButton.classList.replace('btn-inactive', 'btn-active');
+                    backDirectionButton.classList.replace('btn-active', 'btn-inactive');
+                    map.addLayer(goLayerGroup); map.removeLayer(backLayerGroup); map.addLayer(goBusLayerGroup); map.removeLayer(backBusLayerGroup);
                 } else {
-                    backBtn.className = "direction-button flex-1 rounded-lg font-semibold bg-blue-500 text-white";
-                    goBtn.className = "direction-button flex-1 rounded-lg font-semibold bg-transparent text-blue-500 border border-blue-500";
-                    map.addLayer(layers.back); map.removeLayer(layers.go);
-                    map.addLayer(layers.backBus); map.removeLayer(layers.goBus);
+                    backDirectionButton.classList.replace('btn-inactive', 'btn-active');
+                    goDirectionButton.classList.replace('btn-active', 'btn-inactive');
+                    map.addLayer(backLayerGroup); map.removeLayer(goLayerGroup); map.addLayer(backBusLayerGroup); map.removeLayer(goBusLayerGroup);
                 }
             }
 
-            window.panMap = (lat, lon) => {
-                map.flyTo([lat, lon], 16);
-            };
-
-            function scrollToStation(target) {
-                const container = currentDirection === 1 ? contentGo : contentBack;
-                // Try Find by ID or Name
-                let el = container.querySelector(`[data-id="${target}"]`);
-                if (!el) {
-                    const items = Array.from(container.children);
-                    el = items.find(item => item.innerText.includes(target));
-                }
+            function scrollToTargetStation(target) {
+                const container = currentDirection === 1 ? document.getElementById('stationListGoContent').parentElement : document.getElementById('stationListBackContent').parentElement;
+                let el = container.querySelector(`[data-station-id="${target}"]`) || Array.from(container.querySelectorAll('.station-item')).find(card => card.innerText.includes(target));
                 if (el) {
                     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    el.classList.add('bg-blue-50', 'dark:bg-blue-900/30');
-                    setTimeout(() => el.classList.remove('bg-blue-50', 'dark:bg-blue-900/30'), 1500);
-                    // Also center map
-                    const st = routeData.stations.edges.find(e => String(e.node.id) === el.dataset.id);
-                    if(st) panMap(st.node.lat, st.node.lon);
+                    el.style.backgroundColor = 'rgba(59, 130, 246, 0.1)'; setTimeout(() => el.style.backgroundColor = '', 1500);
+                    const st = currentRouteData.stations.edges.find(e => String(e.node.id) === el.dataset.stationId);
+                    if (st && st.node.lat) map.flyTo([st.node.lat, st.node.lon], 16);
                 }
             }
 
-            function setupDragHandle() {
-                const handle = document.getElementById('dragHandle');
-                const wrapper = document.getElementById('content-wrapper');
-                let dragging = false, startY, startH;
-                
-                const start = (y) => { dragging = true; startY = y; startH = sectionEl.offsetHeight; };
-                const move = (y) => {
-                    if (!dragging) return;
-                    const newH = Math.min(Math.max(startH + (startY - y), 100), wrapper.offsetHeight - 100);
-                    sectionEl.style.height = `${newH}px`;
-                    map.invalidateSize();
-                };
-                
-                handle.addEventListener('mousedown', e => start(e.clientY));
-                handle.addEventListener('touchstart', e => { e.preventDefault(); start(e.touches[0].clientY); }, {passive:false});
-                document.addEventListener('mousemove', e => move(e.clientY));
-                document.addEventListener('touchmove', e => move(e.touches[0].clientY), {passive:false});
-                document.addEventListener('mouseup', () => dragging = false);
-                document.addEventListener('touchend', () => dragging = false);
-            }
-
-            function setupSwipe() {
-                let sX = 0, sY = 0;
-                sectionEl.addEventListener('touchstart', e => {
-                    if(e.target.closest('#dragHandle')) return;
-                    sX = e.changedTouches[0].screenX; sY = e.changedTouches[0].screenY;
-                }, {passive: true});
-                sectionEl.addEventListener('touchend', e => {
-                    if(e.target.closest('#dragHandle')) return;
-                    const dX = e.changedTouches[0].screenX - sX, dY = e.changedTouches[0].screenY - sY;
-                    if(Math.abs(dX) > 60 && Math.abs(dX) > Math.abs(dY)) {
-                        if (dX < 0 && currentDirection === 1) switchDir(2); // Swipe Left -> Go Right tab
-                        else if (dX > 0 && currentDirection === 2) switchDir(1); // Swipe Right -> Go Left tab
-                    }
-                }, {passive: true});
-            }
-
-            function startTimer() {
-                if(timer) clearInterval(timer);
-                timer = setInterval(() => {
-                    countdown--;
-                    document.getElementById('updateCountdownText').textContent = `${countdown}秒後更新`;
-                    if(countdown <= 0) {
-                        resetTimer();
-                        fetchData(false);
-                    }
-                }, 1000);
-            }
-            function resetTimer() {
-                countdown = 20;
-                document.getElementById('updateCountdownText').textContent = `${countdown}秒後更新`;
-                const icon = countdownBtn.querySelector('.material-icons-outlined');
-                icon.classList.add('spin-update');
-                setTimeout(() => icon.classList.remove('spin-update'), 500);
-            }
+            let countdown = 20, timer;
+            function startCountdown() { clearInterval(timer); timer = setInterval(() => { countdown--; document.getElementById('updateCountdownText').textContent = `${countdown}秒後更新`; if (countdown <= 0) { loadBusData(currentRouteId, false); resetCountdown(); } }, 1000); }
+            function resetCountdown() { countdown = 20; document.getElementById('updateCountdownText').textContent = `${countdown}秒後更新`; const icon = updateCountdownButton.querySelector('.material-icons-outlined'); icon.classList.add('spin-update'); setTimeout(() => icon.classList.remove('spin-update'), 500); }
 
             init();
         });
