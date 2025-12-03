@@ -216,7 +216,7 @@
             top: 0; left: 0; right: 0; bottom: 0;
             overflow-y: auto;
             -webkit-overflow-scrolling: touch;
-            /* 修改：手機版底部間距減少為 50px */
+            /* 手機版底部間距：避開按鈕 */
             padding: 1rem 1rem 50px 0;
         }
         #stationListGoContent, #stationListBackContent {
@@ -312,7 +312,7 @@
         /* --- Update Button --- */
         #updateCountdown {
             position: fixed;
-            bottom: 10px; /* 修改：位置降低至 10px */
+            bottom: 10px; /* 貼近底部 */
             left: 50%;
             transform: translateX(-50%);
             z-index: 1001;
@@ -331,7 +331,7 @@
         }
         #updateCountdownText {
             display: inline-block;
-            min-width: 70px;
+            min-width: 70px; /* 固定寬度，避免跳動 */
             text-align: left;
         }
         @keyframes spin-180 { from { transform: rotate(0deg); } to { transform: rotate(180deg); } }
@@ -405,7 +405,7 @@
              
              #dragHandle { display: none; }
 
-             /* 修改：電腦模式下不需為卡片保留底部空間 */
+             /* 電腦模式下無需避開按鈕 */
              .station-list-container {
                  padding-bottom: 1rem;
              }
@@ -585,8 +585,8 @@
                 document.addEventListener('touchmove', (e) => {
                     if (!isDragging) return;
                     const deltaY = startY - e.touches[0].clientY;
-                    // 修改：最小高度設為 30px (僅保留拖曳桿高度)，不再避開按鈕
-                    const newHeight = Math.min(Math.max(startHeight + deltaY, 30), contentWrapper.offsetHeight);
+                    // 修改：最小高度限制為 75px，確保拖曳桿位於按鈕上方
+                    const newHeight = Math.min(Math.max(startHeight + deltaY, 75), contentWrapper.offsetHeight);
                     panel.style.height = `${newHeight}px`;
                     map.invalidateSize();
                 }, { passive: true });
