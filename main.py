@@ -11,8 +11,8 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEnginePage
 from PyQt6.QtWebChannel import QWebChannel
-from PyQt6.QtCore import QObject, pyqtSlot, pyqtSignal, QThread, Qt, QTimer, QSize, QRect, QPropertyAnimation, QEasingCurve, QPoint
-from PyQt6.QtGui import QColor, QFontDatabase, QFont, QCursor, QIcon, QPainter, QFontMetrics
+from PyQt6.QtCore import QObject, pyqtSlot, pyqtSignal, QThread, Qt, QTimer, QSize, QRect, QPropertyAnimation, QEasingCurve, QPoint, QRectF
+from PyQt6.QtGui import QColor, QFontDatabase, QFont, QCursor, QIcon, QPainter, QFontMetrics, QPen, QBrush
 
 # --- 設定常數 ---
 CONFIG = {
@@ -221,6 +221,7 @@ class IconLabel(QLabel):
         self.setStyleSheet(f"color: {color}; background: transparent; border: none;")
         self.setFixedSize(size+10, size+10)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents) # 讓點擊穿透
 
 class ElidedLabel(QLabel):
     def paintEvent(self, event):
@@ -228,6 +229,77 @@ class ElidedLabel(QLabel):
         metrics = QFontMetrics(self.font())
         elided = metrics.elidedText(self.text(), Qt.TextElideMode.ElideRight, self.width())
         painter.drawText(self.rect(), self.alignment(), elided)
+
+# [NEW] 自定義圓形倒數按鈕 (修正繪製問題)
+class CountdownButton(QPushButton):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(40, 40)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        # 移除 CSS 的背景與邊框，完全由 paintEvent 控制
+        self.setStyleSheet("background: transparent; border: none;")
+        
+        self.icon_lbl = IconLabel('refresh', 20, "#64748b")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0,0,0,0)
+        layout.addWidget(self.icon_lbl, 0, Qt.AlignmentFlag.AlignCenter)
+        
+        self.timer = QTimer(self)
+        self.timer.setInterval(50)
+        self.timer.timeout.connect(self.update_progress)
+        self.duration = 30000
+        self.elapsed = 0
+        self.is_running = False
+
+    def start_countdown(self, duration_ms=30000):
+        self.duration = duration_ms
+        self.elapsed = 0
+        self.is_running = True
+        self.timer.start()
+        self.icon_lbl.setStyleSheet("color: #3b82f6;")
+        self.update()
+
+    def stop_countdown(self):
+        self.is_running = False
+        self.timer.stop()
+        self.icon_lbl.setStyleSheet("color: #64748b;")
+        self.update()
+
+    def update_progress(self):
+        self.elapsed += 50
+        if self.elapsed >= self.duration:
+            self.elapsed = 0
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # 1. 繪製圓形背景
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(QColor("#f8fafc")))
+        painter.drawEllipse(2, 2, 36, 36)
+        
+        # 2. 繪製靜態邊框 (灰色)
+        pen_grey = QPen(QColor("#e2e8f0"), 2)
+        painter.setPen(pen_grey)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(2, 2, 36, 36)
+
+        # 3. 繪製倒數進度圈 (藍色)
+        if self.is_running:
+            pen_blue = QPen(QColor("#3b82f6"), 2)
+            pen_blue.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(pen_blue)
+            
+            rect = QRectF(2, 2, 36, 36)
+            progress = 1.0 - (self.elapsed / self.duration)
+            span_angle = int(progress * 360 * 16)
+            start_angle = 90 * 16 
+            painter.drawArc(rect, start_angle, span_angle)
+            
+        # 讓 QPushButton 處理子元件 (IconLabel)
+        # super().paintEvent(event) # 不需要，因為我們完全接管了背景繪製
 
 class LayerCheckbox(QPushButton):
     def __init__(self, parent=None):
@@ -326,17 +398,13 @@ class MainWindow(QMainWindow):
         self.sb_title = QLabel(); self.sb_title.setStyleSheet("font-size: 20px; font-weight: 900; color: #1e293b; border: none;"); self.sb_title.setWordWrap(True)
         self.sb_sub = QLabel(); self.sb_sub.setStyleSheet("color: #64748b; font-size: 13px; border: none;")
         info_layout.addWidget(self.sb_title); info_layout.addWidget(self.sb_sub)
-        self.refresh_btn = QPushButton(); self.refresh_btn.setFixedSize(40, 40); self.refresh_btn.setStyleSheet("QPushButton { background-color: #f8fafc; border-radius: 20px; border: 1px solid #e2e8f0; } QPushButton:hover { background-color: #eff6ff; border-color: #3b82f6; }")
-        rl = QVBoxLayout(self.refresh_btn); rl.setContentsMargins(0,0,0,0); rl.addWidget(IconLabel('refresh', 20, "#64748b"), 0, Qt.AlignmentFlag.AlignCenter)
+        self.refresh_btn = CountdownButton() # [FIX] Updated button
         self.refresh_btn.clicked.connect(self.refresh_data)
         hl.addLayout(info_layout); hl.addWidget(self.refresh_btn); main_layout.addWidget(header)
-        
-        self.scroll_area = QScrollArea(); self.scroll_area.setWidgetResizable(True); self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        self.scroll_area.setStyleSheet("QScrollArea { background-color: transparent; border: none; } QScrollBar:vertical { width: 0px; }")
+        self.scroll_area = QScrollArea(); self.scroll_area.setWidgetResizable(True); self.scroll_area.setFrameShape(QFrame.Shape.NoFrame); self.scroll_area.setStyleSheet("background-color: transparent; border: none;")
         self.sb_content = QWidget(); self.sb_content.setStyleSheet("background-color: #f8fafc;")
-        # [FIX] Set layout alignment to Top to remove gaps
         self.sb_layout = QVBoxLayout(self.sb_content); self.sb_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.sb_layout.setContentsMargins(20, 20, 20, 80); self.sb_layout.setSpacing(12) # Uniform spacing
+        self.sb_layout.setContentsMargins(20, 20, 20, 80); self.sb_layout.setSpacing(12)
         self.scroll_area.setWidget(self.sb_content); main_layout.addWidget(self.scroll_area)
 
         self.settings_btn = QPushButton(self); self.settings_btn.setFixedSize(56, 56)
@@ -449,15 +517,22 @@ class MainWindow(QMainWindow):
             self.sb_badge.setStyleSheet(f"background-color: {bg}; color: {fg}; border-radius: 6px; padding: 2px 8px; font-weight: bold;")
         self.sb_sub.setText(f"ID: {i}" if t=='bus' else (a if t=='bike' else f"車站代碼: {i}"))
         self.sidebar.show(); self.update_layout_state(); 
+        # [FIX] Added Pan Map Logic
+        self.pan_map_to_offset(la, lo)
+        
+        self.refresh_btn.start_countdown()
         self.refresh_data(); self.timer.start(30000)
 
-    def close_sidebar(self): self.sidebar.hide(); self.update_layout_state(); self.timer.stop()
+    def close_sidebar(self): 
+        self.sidebar.hide(); self.update_layout_state(); 
+        self.refresh_btn.stop_countdown(); self.timer.stop()
 
     def refresh_data(self, auto=False):
         if not hasattr(self, 'ctx'): return
         if not auto:
             self.clear_layout(self.sb_layout)
             l = QLabel("載入中..."); l.setAlignment(Qt.AlignmentFlag.AlignCenter); l.setStyleSheet("color: #94a3b8; border: none;"); self.sb_layout.addWidget(l)
+            self.refresh_btn.start_countdown()
         self.worker = RealtimeFetcher(self.ctx['t'], self.ctx['i'], self.ctx['n']); self.worker.info_updated.connect(self.render_sidebar); self.worker.start()
 
     def render_sidebar(self, res):
@@ -474,29 +549,22 @@ class MainWindow(QMainWindow):
                 self.sb_layout.addWidget(no_bus); return
             for r in d:
                 card = QFrame(); card.setStyleSheet("background-color: white; border-radius: 16px; border: none;")
-                # [FIX] Bus Card Height
                 card.setFixedHeight(75) 
                 cl = QHBoxLayout(card); cl.setContentsMargins(16, 0, 16, 0); cl.setSpacing(10)
-                
                 left_container = QWidget(); left_layout = QVBoxLayout(left_container); left_layout.setContentsMargins(0,0,0,0); left_layout.setSpacing(4)
-                
                 nd_row = QHBoxLayout(); nd_row.setContentsMargins(0,0,0,0); nd_row.setSpacing(8)
                 rn = ElidedLabel(r['name']); rn.setStyleSheet("font-size: 16px; font-weight: 900; color: #1e293b; border: none;")
                 dd = QLabel(r['dir']); dd.setStyleSheet("background-color: #f1f5f9; color: #64748b; padding: 2px 8px; border-radius: 6px; font-size: 11px; border: none;")
-                dd.setFixedSize(dd.sizeHint())
-                nd_row.addWidget(rn, 1); nd_row.addWidget(dd, 0); left_layout.addLayout(nd_row)
-                
+                dd.setFixedSize(dd.sizeHint()); nd_row.addWidget(rn, 1); nd_row.addWidget(dd, 0); left_layout.addLayout(nd_row)
                 st = QLabel()
                 if r['susp']: st.setText("末班已過"); st.setStyleSheet("color: #94a3b8; font-weight: 500; border: none;")
                 elif r['eta'] == 0: st.setText("進站中"); st.setStyleSheet("color: #dc2626; font-weight: 900; font-size: 14px; border: none;"); card.setStyleSheet("background-color: #fef2f2; border-radius: 16px; border: 1px solid #fee2e2;")
                 elif r['eta']: st.setText(f"{r['eta']} 分"); st.setStyleSheet("color: #2563eb; font-weight: 900; font-size: 18px; border: none;")
                 else: st.setText(r['ct'] or "未發車"); st.setStyleSheet("color: #64748b; font-weight: 500; border: none;")
-                
-                cl.addWidget(left_container, 7); cl.addWidget(st, 3, Qt.AlignmentFlag.AlignRight)
-                self.sb_layout.addWidget(card)
+                cl.addWidget(left_container, 7); cl.addWidget(st, 3, Qt.AlignmentFlag.AlignRight); self.sb_layout.addWidget(card)
 
         elif res['type'] == 'bike':
-            grid_widget = QWidget(); gl = QGridLayout(grid_widget); gl.setSpacing(12); gl.setContentsMargins(0,0,0,0)
+            grid_widget = QWidget(); gl = QGridLayout(grid_widget); gl.setSpacing(15); gl.setContentsMargins(0,0,0,0)
             def make_card(title, val, icon, theme):
                 f = QFrame()
                 if theme == 'yellow': style = "background-color: #fffbeb; color: #92400e;"
@@ -510,7 +578,6 @@ class MainWindow(QMainWindow):
                 row = QHBoxLayout()
                 i = IconLabel(icon, 36, c)
                 v = QLabel(str(val)); v.setStyleSheet(f"color: {c}; font-size: 40px; font-weight: 900; background: transparent; border: none;")
-                # Icons align Left, Numbers align Right
                 row.addWidget(i, 0, Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignLeft)
                 row.addStretch()
                 row.addWidget(v, 0, Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
@@ -519,50 +586,30 @@ class MainWindow(QMainWindow):
             gl.addWidget(make_card("一般車輛", det.get('yb2', 0), 'pedal_bike', 'yellow'), 0, 0)
             gl.addWidget(make_card("電輔車", det.get('eyb', 0), 'bolt', 'orange'), 0, 1)
             
-            # Parking Card (Full Width)
-            f = QFrame(); f.setStyleSheet("background-color: #f0fdf4; border-radius: 20px; border: none;"); f.setFixedHeight(100)
-            hl = QHBoxLayout(f); hl.setContentsMargins(24, 0, 30, 0)
-            
+            # [FIX] Separate layout logic for parking card
+            park = QFrame(); park.setStyleSheet("background-color: #f0fdf4; border-radius: 20px; border: none;"); park.setFixedHeight(100)
+            hl = QHBoxLayout(park); hl.setContentsMargins(24, 0, 30, 0)
             left_grp = QVBoxLayout(); left_grp.setSpacing(2); left_grp.setAlignment(Qt.AlignmentFlag.AlignVCenter)
             pl = QLabel("可歸還空位"); pl.setStyleSheet("color: #166534; font-weight: bold; font-size: 13px; border: none;")
-            pi = QLabel("P"); pi.setStyleSheet("color: #15803d; font-weight: 900; font-size: 32px; border: none;")
-            left_grp.addWidget(pl); left_grp.addWidget(pi)
-            
+            pi = QLabel("P"); pi.setStyleSheet("color: #15803d; font-weight: 900; font-size: 32px; border: none;"); left_grp.addWidget(pl); left_grp.addWidget(pi)
             pv = QLabel(str(d.get('empty_spaces', 0))); pv.setStyleSheet("color: #166534; font-size: 42px; font-weight: 900; border: none;")
-            
             hl.addLayout(left_grp); hl.addStretch(); hl.addWidget(pv)
             
-            self.sb_layout.addWidget(grid_widget); self.sb_layout.addWidget(f)
+            self.sb_layout.addWidget(grid_widget); self.sb_layout.addWidget(park)
             self.sb_layout.addWidget(QLabel(f"更新於 {time.strftime('%H:%M')}", styleSheet="color: #cbd5e1; font-size: 11px; margin-top: 10px; qproperty-alignment: AlignCenter; border: none;"))
 
         elif res['type'] == 'metro':
             if not d: self.sb_layout.addWidget(QLabel("目前無列車動態", styleSheet="color: #94a3b8; padding: 20px; qproperty-alignment: AlignCenter; border: none;")); return
             for t in d:
                 row = QFrame(); row.setStyleSheet("background-color: white; border-radius: 16px; border: none;")
-                row.setFixedHeight(80) # Fixed compact height
-                rl = QHBoxLayout(row); rl.setContentsMargins(24, 0, 24, 0)
-                
-                # Destination (Left) - [FIX] Removed "往"
-                nm = QLabel(t['tripHeadSign']); nm.setStyleSheet("font-size: 18px; font-weight: 900; color: #1e293b; border: none;")
-                
-                # Line Badge (Middle)
-                line_id = t.get('stationId', '')[0]
-                badge_txt = "紅線" if line_id=='R' else ("橘線" if line_id=='O' else "輕軌")
-                badge_bg = "#fee2e2" if line_id=='R' else ("#ffedd5" if line_id=='O' else "#dcfce7")
-                badge_fg = "#b91c1c" if line_id=='R' else ("#c2410c" if line_id=='O' else "#15803d")
-                
-                lb = QLabel(badge_txt)
-                lb.setStyleSheet(f"background-color: {badge_bg}; color: {badge_fg}; border-radius: 12px; padding: 4px 8px; font-weight: bold; font-size: 12px;")
-                lb.setFixedSize(lb.sizeHint())
-
-                # Time (Right)
+                row.setFixedHeight(80) 
+                rl = QHBoxLayout(row); rl.setContentsMargins(16, 8, 16, 8)
+                nm = QLabel(t['tripHeadSign']); nm.setStyleSheet("font-size: 16px; font-weight: bold; color: #1e293b; border: none;")
                 est = t['estimateTime']
-                if est == 0: st = QLabel("進站中"); st.setStyleSheet("color: #dc2626; font-weight: 900; font-size: 16px; border: none;")
-                elif est == 1: st = QLabel("即將到站"); st.setStyleSheet("color: #ef4444; font-weight: bold; font-size: 16px; border: none;")
-                else: st = QLabel(f"{est} 分"); st.setStyleSheet("color: #2563eb; font-weight: 900; font-size: 20px; border: none;")
-                
-                rl.addWidget(nm); rl.addSpacing(10); rl.addWidget(lb); rl.addStretch(); rl.addWidget(st)
-                self.sb_layout.addWidget(row)
+                if est == 0: st = QLabel("進站中"); st.setStyleSheet("color: #dc2626; font-weight: 900; border: none;")
+                elif est == 1: st = QLabel("即將到站"); st.setStyleSheet("color: #ef4444; font-weight: bold; border: none;")
+                else: st = QLabel(f"{est} 分"); st.setStyleSheet("color: #2563eb; font-weight: 900; font-size: 18px; border: none;")
+                rl.addWidget(nm); rl.addStretch(); rl.addWidget(st); self.sb_layout.addWidget(row)
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
