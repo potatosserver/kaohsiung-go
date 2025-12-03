@@ -135,6 +135,12 @@
             padding-right: 20px;
         }
         
+        /* List marquee slightly faster/different if desired */
+        .list-marquee-text.is-overflowing {
+            animation: marquee-scroll 8s linear infinite;
+            padding-right: 20px;
+        }
+
         .marquee-inner { 
             display: inline-block; 
             padding-right: 2.5rem; 
@@ -289,10 +295,6 @@
             display: inline-block;
             white-space: nowrap;
         }
-        .list-marquee-text.is-overflowing {
-            animation: marquee-scroll 8s linear infinite;
-            padding-right: 20px;
-        }
 
         /* --- Transitions --- */
         .hidden { display: none !important; }
@@ -432,7 +434,7 @@
 
     <button id="updateCountdown">
         <span class="material-icons-outlined text-lg">autorenew</span>
-        <span id="updateCountdownText">20秒後更新</span>
+        <span id="updateCountdownText">30秒後更新</span>
     </button>
     
     <script>
@@ -456,9 +458,7 @@
             let currentRouteData = null;
             let isAnimatingDirection = false;
             let isFirstMapLoad = true;
-            let updateInterval = 20;
-            
-            // Map marker storage for popup access
+            let updateInterval = 30; // Changed to 30s
             let stationMarkers = {};
 
             const GQL = {
@@ -535,7 +535,6 @@
                 backDirectionButton.addEventListener('click', () => toggleDirection(2));
                 updateCountdownButton.addEventListener('click', () => { resetCountdown(); loadBusData(currentRouteId, false); });
 
-                // Drag Logic
                 const dragHandle = document.getElementById('dragHandle');
                 const panel = document.getElementById('estimateTimesSection');
                 const contentWrapper = document.getElementById('content-wrapper');
@@ -551,7 +550,6 @@
                 }, { passive: true });
                 document.addEventListener('touchend', () => { isDragging = false; });
 
-                // Swipe Logic
                 let touchStartX = 0, touchStartY = 0;
                 estimateTimesSection.addEventListener('touchstart', (e) => { if (e.target.closest('#dragHandle')) return; touchStartX = e.changedTouches[0].clientX; touchStartY = e.changedTouches[0].clientY; }, { passive: true });
                 estimateTimesSection.addEventListener('touchend', (e) => {
@@ -579,12 +577,10 @@
                     
                     currentRouteData = result.data.route;
                     
-                    // --- Auto-Direction Logic ---
                     if (isInitial && scrollToStation && currentRouteData.stations) {
                         const targetEdge = currentRouteData.stations.edges.find(e => String(e.node.id) === String(scrollToStation) || e.node.name === scrollToStation);
                         if (targetEdge) {
                             currentDirection = targetEdge.goBack;
-                            // Force UI state now so render knows what's visible
                             if (currentDirection === 2) {
                                 stationListGo.classList.add('hidden');
                                 stationListBack.classList.remove('hidden');
@@ -615,10 +611,15 @@
                 }
             }
 
-            // --- The Fixed Logic from Original File ---
             function checkMarqueeOverflow(container, textElement, originalText) {
                 if (!container || !textElement) return;
                 
+                // NO RESET CHECK: 如果文字一樣，且已經是溢出狀態，不重置
+                const oldText = textElement.dataset.originalText;
+                if (oldText === originalText && textElement.classList.contains('is-overflowing')) {
+                    return; 
+                }
+
                 textElement.dataset.originalText = originalText;
                 container.style.flexGrow = '1';
                 textElement.classList.remove('is-overflowing');
@@ -668,8 +669,14 @@
             function checkListMarquee(el) {
                 if(!el) return;
                 const container = el.parentElement;
+                
+                // 列表不常變動，這裡簡單處理，避免重置
+                if (el.classList.contains('is-overflowing') && el.dataset.originalText === el.textContent) return;
+
+                el.dataset.originalText = el.textContent;
                 el.innerHTML = el.textContent; 
                 el.classList.remove('is-overflowing');
+                
                 if (el.scrollWidth > container.clientWidth) {
                     const text = el.textContent;
                     el.innerHTML = `<span class="marquee-inner">${text}</span><span class="marquee-inner">${text}</span>`;
@@ -686,47 +693,91 @@
                     return; 
                 }
                 
-                container.innerHTML = '';
+                // --- Updated Render Logic: Update Existing or Create New ---
+                const existingCards = Array.from(container.children);
+                const cardsById = new Map(existingCards.map(c => [c.dataset.stationId, c]));
 
-                stations.forEach(st => {
+                stations.forEach((st, index) => {
                     const stationId = st.node.id;
                     const estimate = estimates.get(stationId);
                     const status = getStatus(estimate);
-                    
-                    const card = document.createElement('div');
-                    card.className = 'station-item bus-card cursor-pointer';
-                    card.dataset.stationId = stationId;
-                    card.onclick = () => { 
-                        if(st.node.lat) {
-                            map.flyTo([st.node.lat, st.node.lon], 16);
-                            if (stationMarkers[stationId]) stationMarkers[stationId].openPopup();
-                        } 
-                    };
-                    
-                    card.innerHTML = `
-                        <div class="station-icon-container">
-                            <div class="station-dot ${direction === 1 ? 'go-station' : 'back-station'}"></div>
-                        </div>
-                        <div class="station-content">
-                            <div class="flex items-center w-full overflow-hidden">
-                                <div class="w-24 text-center mr-3 flex-shrink-0">
-                                    <div class="time-pill ${status.colorClass}">${status.text}</div>
-                                </div>
-                                <div class="flex-1 min-w-0 overflow-hidden">
-                                    <div class="list-marquee-container">
-                                        <span class="list-marquee-text font-medium text-slate-800 dark:text-slate-200">${st.node.name}</span>
-                                    </div>
-                                </div>
-                                ${status.plate ? `<span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded ml-2 flex-shrink-0">${status.plate}</span>` : ''}
+                    let card = cardsById.get(stationId);
+
+                    if (card) {
+                        // UPDATE EXISTING
+                        const pill = card.querySelector('.time-pill');
+                        // Only touch DOM if changed
+                        if (pill.textContent !== status.text) {
+                            pill.className = `time-pill ${status.colorClass}`;
+                            pill.textContent = status.text;
+                        } else if (!pill.classList.contains(status.colorClass.split(' ')[0])) {
+                             pill.className = `time-pill ${status.colorClass}`;
+                        }
+                        
+                        // Handle plate update logic (simplified)
+                        let plateSpan = card.querySelector('.plate-number');
+                        if (status.plate) {
+                            if (!plateSpan) {
+                                // Add plate
+                                const plateHtml = `<span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded ml-2 flex-shrink-0 plate-number">${status.plate}</span>`;
+                                card.querySelector('.station-content > div').insertAdjacentHTML('beforeend', plateHtml);
+                            } else if (plateSpan.textContent !== status.plate) {
+                                plateSpan.textContent = status.plate;
+                            }
+                        } else if (plateSpan) {
+                            plateSpan.remove();
+                        }
+
+                        // Ensure order
+                        if (container.children[index] !== card) {
+                            container.insertBefore(card, container.children[index]);
+                        }
+                    } else {
+                        // CREATE NEW
+                        card = document.createElement('div');
+                        card.className = 'station-item bus-card cursor-pointer';
+                        card.dataset.stationId = stationId;
+                        card.onclick = () => { 
+                            if(st.node.lat) {
+                                map.flyTo([st.node.lat, st.node.lon], 16);
+                                if (stationMarkers[stationId]) stationMarkers[stationId].openPopup();
+                            } 
+                        };
+                        
+                        card.innerHTML = `
+                            <div class="station-icon-container">
+                                <div class="station-dot ${direction === 1 ? 'go-station' : 'back-station'}"></div>
                             </div>
-                        </div>`;
-                    
-                    container.appendChild(card);
-                    
-                    requestAnimationFrame(() => {
-                        checkListMarquee(card.querySelector('.list-marquee-text'));
-                    });
+                            <div class="station-content">
+                                <div class="flex items-center w-full overflow-hidden">
+                                    <div class="w-24 text-center mr-3 flex-shrink-0">
+                                        <div class="time-pill ${status.colorClass}">${status.text}</div>
+                                    </div>
+                                    <div class="flex-1 min-w-0 overflow-hidden">
+                                        <div class="list-marquee-container">
+                                            <span class="list-marquee-text font-medium text-slate-800 dark:text-slate-200">${st.node.name}</span>
+                                        </div>
+                                    </div>
+                                    ${status.plate ? `<span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded ml-2 flex-shrink-0 plate-number">${status.plate}</span>` : ''}
+                                </div>
+                            </div>`;
+                        
+                        if (container.children[index]) {
+                            container.insertBefore(card, container.children[index]);
+                        } else {
+                            container.appendChild(card);
+                        }
+                        
+                        requestAnimationFrame(() => {
+                            checkListMarquee(card.querySelector('.list-marquee-text'));
+                        });
+                    }
                 });
+
+                // Remove stale cards
+                while (container.children.length > stations.length) {
+                    container.removeChild(container.lastChild);
+                }
             }
 
             function getStatus(estimate) {
@@ -744,7 +795,7 @@
 
             function renderMap(data) {
                 goLayerGroup.clearLayers(); backLayerGroup.clearLayers();
-                stationMarkers = {}; // Reset markers
+                stationMarkers = {};
 
                 ['go', 'back'].forEach(dir => {
                     const encoded = data.routePoint[dir];
@@ -765,7 +816,7 @@
                             .bindPopup(`<div class="font-bold">${st.node.name}</div><div class="text-xs">站序: ${st.orderNo}</div>`)
                             .addTo(layerGroup);
                             
-                            stationMarkers[st.node.id] = marker; // Store for popup
+                            stationMarkers[st.node.id] = marker;
                         }
                     });
                 });
@@ -835,9 +886,9 @@
                 }
             }
 
-            let countdown = 20, timer;
+            let countdown = 30, timer; // Changed to 30
             function startCountdown() { clearInterval(timer); timer = setInterval(() => { countdown--; document.getElementById('updateCountdownText').textContent = `${countdown}秒後更新`; if (countdown <= 0) { loadBusData(currentRouteId, false); resetCountdown(); } }, 1000); }
-            function resetCountdown() { countdown = 20; document.getElementById('updateCountdownText').textContent = `${countdown}秒後更新`; const icon = updateCountdownButton.querySelector('.material-icons-outlined'); icon.classList.add('spin-update'); setTimeout(() => icon.classList.remove('spin-update'), 500); }
+            function resetCountdown() { countdown = 30; document.getElementById('updateCountdownText').textContent = `${countdown}秒後更新`; const icon = updateCountdownButton.querySelector('.material-icons-outlined'); icon.classList.add('spin-update'); setTimeout(() => icon.classList.remove('spin-update'), 500); }
 
             init();
         });
