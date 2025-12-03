@@ -25,7 +25,7 @@
             color: #1e293b;
             user-select: none;
             height: 100vh;
-            height: 100dvh; /* Mobile viewport fix */
+            height: 100dvh;
             overflow: hidden;
             display: flex;
             flex-direction: column;
@@ -75,7 +75,7 @@
         }
         #estimateTimesSection {
             flex-shrink: 0;
-            height: 55%; /* Default split */
+            height: 55%;
             background-color: #f1f5f9;
             display: flex;
             flex-direction: column;
@@ -119,8 +119,9 @@
             right: 0;
             bottom: 0;
             overflow-y: auto;
-            -webkit-overflow-scrolling: touch; /* Smooth scrolling iOS */
-            padding: 1rem 1rem 80px 0;
+            overflow-x: hidden; /* 防止左右晃動 */
+            -webkit-overflow-scrolling: touch;
+            padding: 1rem 1rem 80px 1rem; /* 左側增加 Padding 給時間軸線 */
         }
 
         /* List Styling */
@@ -144,6 +145,7 @@
             display: flex;
             align-items: center;
             margin-bottom: 12px;
+            width: 100%; /* 確保不超過容器 */
         }
         .station-icon-container {
             position: absolute;
@@ -172,6 +174,7 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
+            min-width: 0; /* 關鍵：防止 Flex 子元素撐爆容器 */
         }
         
         .time-pill {
@@ -181,6 +184,7 @@
             border-radius: 999px;
             font-weight: 700;
             font-size: 0.9em;
+            white-space: nowrap;
         }
 
         /* Animations */
@@ -197,12 +201,18 @@
 
         /* Marquee */
         @keyframes marquee-scroll { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+        
+        /* 
+           FIXED MARQUEE: 
+           Make the container flex-grow but clamp the overflow 
+        */
         .marquee-container { 
             overflow: hidden; 
             white-space: nowrap; 
-            display: inline-block;
-            vertical-align: middle;
-            max-width: 100%;
+            display: block; /* block inside flex item */
+            flex: 1;
+            min-width: 0; /* Crucial for flex truncation */
+            text-align: left; /* Align text start so it looks natural */
         }
         .marquee-text.is-overflowing > * {
             display: inline-block;
@@ -219,15 +229,16 @@
             overflow: hidden;
             transition: all 0.2s;
             text-align: center;
-            height: 48px; /* Fixed height for touch target */
+            height: 48px;
+            min-width: 0; /* Prevent button from expanding beyond parent */
         }
         .direction-content-wrapper {
             display: flex;
             align-items: center;
             justify-content: center;
-            max-width: 100%;
             width: 100%;
-            padding: 0 4px;
+            padding: 0 8px;
+            min-width: 0; /* Prevent wrapper from expanding */
         }
         .static-text {
             flex-shrink: 0;
@@ -305,16 +316,15 @@
 <body>
     <div id="busTrackerPage">
         <div class="container mx-auto">
-             <!-- Modified Header: Removed Title/Desc, Expanded Buttons -->
              <header class="p-3 bg-white dark:bg-slate-800 shadow-sm z-20 flex-shrink-0">
-                <div class="flex rounded-lg border-2 border-blue-500 overflow-hidden text-sm w-full">
-                    <button id="goDirectionButton" class="direction-button flex-1 p-2 font-semibold bg-blue-500 text-white" data-direction="1">
+                <div class="flex rounded-lg border-2 border-blue-500 overflow-hidden text-sm w-full h-12">
+                    <button id="goDirectionButton" class="direction-button flex-1 p-0 bg-blue-500 text-white" data-direction="1">
                         <div class="direction-content-wrapper">
                             <span class="static-text">去程往&nbsp;</span>
                             <span class="marquee-container"><span class="marquee-text">--</span></span>
                         </div>
                     </button>
-                    <button id="backDirectionButton" class="direction-button flex-1 p-2 font-semibold bg-transparent text-blue-500" data-direction="2">
+                    <button id="backDirectionButton" class="direction-button flex-1 p-0 bg-transparent text-blue-500" data-direction="2">
                         <div class="direction-content-wrapper">
                             <span class="static-text">返程往&nbsp;</span>
                             <span class="marquee-container"><span class="marquee-text">--</span></span>
@@ -392,58 +402,32 @@
                 `
             };
 
-            // --- Map Utils (Projection Logic) ---
             function decodePolyline(t){for(var n,o,u=0,l=0,r=0,d= [],h=0,i=0,a=null,c=Math.pow(10,5);u<t.length;){a=null,h=0,i=0;do a=t.charCodeAt(u++)-63,i|=(31&a)<<h,h+=5;while(a>=32);n=1&i?~(i>>1):i>>1,h=i=0;do a=t.charCodeAt(u++)-63,i|=(31&a)<<h,h+=5;while(a>=32);o=1&i?~(i>>1):i>>1,l+=n,r+=o,d.push([l/c,r/c])}return d}
             
             function findClosestPointOnPolyline(point, polyline) {
                 let minDistanceSquared = Infinity;
                 let closestPoint = null;
-            
-                if (!map || !polyline || polyline.length < 2) {
-                    return L.latLng(point);
-                }
-            
+                if (!map || !polyline || polyline.length < 2) return L.latLng(point);
                 const pointProjected = map.project(point);
-            
                 for (let i = 0; i < polyline.length - 1; i++) {
                     const p1 = L.latLng(polyline[i]);
                     const p2 = L.latLng(polyline[i+1]);
-            
                     const p1Projected = map.project(p1);
                     const p2Projected = map.project(p2);
-            
                     const segmentLengthSquared = p1Projected.distanceTo(p2Projected) ** 2;
-            
                     if (segmentLengthSquared === 0) continue;
-            
                     const t = ((pointProjected.x - p1Projected.x) * (p2Projected.x - p1Projected.x) + (pointProjected.y - p1Projected.y) * (p2Projected.y - p1Projected.y)) / segmentLengthSquared;
-            
                     let projectedSegmentPoint;
-                    if (t < 0) {
-                        projectedSegmentPoint = p1Projected;
-                    } else if (t > 1) {
-                        projectedSegmentPoint = p2Projected;
-                    } else {
-                        projectedSegmentPoint = L.point(
-                            p1Projected.x + t * (p2Projected.x - p1Projected.x),
-                            p1Projected.y + t * (p2Projected.y - p1Projected.y)
-                        );
-                    }
-            
+                    if (t < 0) projectedSegmentPoint = p1Projected;
+                    else if (t > 1) projectedSegmentPoint = p2Projected;
+                    else projectedSegmentPoint = L.point(p1Projected.x + t * (p2Projected.x - p1Projected.x), p1Projected.y + t * (p2Projected.y - p1Projected.y));
                     const distanceSquared = pointProjected.distanceTo(projectedSegmentPoint) ** 2;
-            
-                    if (distanceSquared < minDistanceSquared) {
-                        minDistanceSquared = distanceSquared;
-                        closestPoint = projectedSegmentPoint;
-                    }
+                    if (distanceSquared < minDistanceSquared) { minDistanceSquared = distanceSquared; closestPoint = projectedSegmentPoint; }
                 }
-                
                 return closestPoint ? map.unproject(closestPoint) : L.latLng(point);
             }
 
-            // Initialization
             async function init() {
-                // Map Setup
                 map = L.map('map').setView([22.6273, 120.3014], 13);
                 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
                 map.createPane('routePane').style.zIndex = 350;
@@ -454,7 +438,6 @@
                 goBusLayerGroup = L.layerGroup().addTo(map);
                 backBusLayerGroup = L.layerGroup();
 
-                // URL Parsing
                 const urlParams = new URLSearchParams(window.location.search);
                 const routeIdParam = urlParams.get('route');
                 const stationParam = urlParams.get('station');
@@ -470,27 +453,16 @@
                     updateCountdownButton.style.display = 'none';
                 }
 
-                // Event Listeners
                 goDirectionButton.addEventListener('click', () => toggleDirection(1));
                 backDirectionButton.addEventListener('click', () => toggleDirection(2));
-                updateCountdownButton.addEventListener('click', () => {
-                    resetCountdown();
-                    loadBusData(currentRouteId, false);
-                });
+                updateCountdownButton.addEventListener('click', () => { resetCountdown(); loadBusData(currentRouteId, false); });
                 
-                // --- Vertical Resize Logic ---
                 const dragHandle = document.getElementById('dragHandle');
                 const panel = document.getElementById('estimateTimesSection');
                 const contentWrapper = document.getElementById('content-wrapper');
                 let isDragging = false, startY, startHeight;
 
-                dragHandle.addEventListener('touchstart', (e) => {
-                    isDragging = true;
-                    startY = e.touches[0].clientY;
-                    startHeight = panel.offsetHeight;
-                    e.preventDefault();
-                }, { passive: false });
-
+                dragHandle.addEventListener('touchstart', (e) => { isDragging = true; startY = e.touches[0].clientY; startHeight = panel.offsetHeight; e.preventDefault(); }, { passive: false });
                 document.addEventListener('touchmove', (e) => {
                     if (!isDragging) return;
                     const deltaY = startY - e.touches[0].clientY;
@@ -498,24 +470,14 @@
                     panel.style.height = `${newHeight}px`;
                     map.invalidateSize();
                 }, { passive: true });
-
                 document.addEventListener('touchend', () => { isDragging = false; });
 
-                // --- Horizontal Swipe Logic for Direction ---
                 let touchStartX = 0, touchStartY = 0;
-                estimateTimesSection.addEventListener('touchstart', (e) => {
-                    if (e.target.closest('#dragHandle')) return;
-                    touchStartX = e.changedTouches[0].screenX;
-                    touchStartY = e.changedTouches[0].screenY;
-                }, { passive: true });
-
+                estimateTimesSection.addEventListener('touchstart', (e) => { if (e.target.closest('#dragHandle')) return; touchStartX = e.changedTouches[0].screenX; touchStartY = e.changedTouches[0].screenY; }, { passive: true });
                 estimateTimesSection.addEventListener('touchend', (e) => {
                     if (e.target.closest('#dragHandle')) return;
-                    const touchEndX = e.changedTouches[0].screenX;
-                    const touchEndY = e.changedTouches[0].screenY;
-                    const diffX = touchEndX - touchStartX;
-                    const diffY = touchEndY - touchStartY;
-
+                    const diffX = e.changedTouches[0].screenX - touchStartX;
+                    const diffY = e.changedTouches[0].screenY - touchStartY;
                     if (Math.abs(diffX) > 50 && Math.abs(diffX) > Math.abs(diffY)) {
                         if (diffX < 0 && currentDirection === 1) toggleDirection(2);
                         if (diffX > 0 && currentDirection === 2) toggleDirection(1);
@@ -523,120 +485,56 @@
                 }, { passive: true });
             }
 
-            // Data Fetching
             async function loadBusData(routeId, isInitial, scrollToStation = null) {
                 if (isInitial) trackerLoading.style.display = 'flex';
-                
                 try {
-                    const response = await fetch(API_URL, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ query: GQL.QUERY_ROUTE_DETAILS, variables: { routeId } })
-                    });
+                    const response = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: GQL.QUERY_ROUTE_DETAILS, variables: { routeId } }) });
                     const result = await response.json();
-                    
                     if (!result.data || !result.data.route) throw new Error("查無此路線");
-                    
                     currentRouteData = result.data.route;
                     updateHeaderInfo();
-
                     if (isInitial && scrollToStation && currentRouteData.stations) {
-                        const targetEdge = currentRouteData.stations.edges.find(e => 
-                            String(e.node.id) === String(scrollToStation) || e.node.name === scrollToStation
-                        );
+                        const targetEdge = currentRouteData.stations.edges.find(e => String(e.node.id) === String(scrollToStation) || e.node.name === scrollToStation);
                         if (targetEdge) currentDirection = targetEdge.goBack;
                     }
-
-                    // Render
                     renderList(1, stationListGoContent);
                     renderList(2, stationListBackContent);
                     renderMap(currentRouteData);
                     updateDirectionUI();
-                    
-                    if (isInitial && scrollToStation) {
-                        setTimeout(() => scrollToTargetStation(scrollToStation), 500);
-                    }
-
+                    if (isInitial && scrollToStation) setTimeout(() => scrollToTargetStation(scrollToStation), 500);
                     trackerLoading.style.display = 'none';
                     errorNotice.classList.add('hidden');
-
                 } catch (err) {
                     console.error(err);
-                    if (isInitial) {
-                        trackerLoading.style.display = 'none';
-                        errorNotice.textContent = "無法載入資料，請檢查網路或路線代碼";
-                        errorNotice.classList.remove('hidden');
-                    }
+                    if (isInitial) { trackerLoading.style.display = 'none'; errorNotice.textContent = "無法載入資料，請檢查網路或路線代碼"; errorNotice.classList.remove('hidden'); }
                 }
             }
 
-            // Rendering Logic
             function updateHeaderInfo() {
                 const goText = goDirectionButton.querySelector('.marquee-text');
                 const backText = backDirectionButton.querySelector('.marquee-text');
-                
                 goText.textContent = currentRouteData.destination;
                 backText.textContent = currentRouteData.departure;
-                
-                // Reset animation state
                 goText.parentElement.classList.remove('is-overflowing');
                 backText.parentElement.classList.remove('is-overflowing');
-                
-                // Force layout recalc then check
-                setTimeout(() => {
-                    checkMarquee(goText);
-                    checkMarquee(backText);
-                }, 0);
+                setTimeout(() => { checkMarquee(goText); checkMarquee(backText); }, 0);
             }
 
             function renderList(direction, container) {
-                const stations = currentRouteData.stations.edges
-                    .filter(e => e.goBack === direction)
-                    .sort((a, b) => a.orderNo - b.orderNo);
-                
-                const estimates = new Map(
-                    currentRouteData.estimateTimes.edges
-                        .filter(e => e.node.goBack === direction)
-                        .map(e => [e.node.id, e.node])
-                );
-
-                if (stations.length === 0) {
-                    container.innerHTML = '<p class="text-center py-4 text-slate-500">此方向無站點資料</p>';
-                    return;
-                }
-
+                const stations = currentRouteData.stations.edges.filter(e => e.goBack === direction).sort((a, b) => a.orderNo - b.orderNo);
+                const estimates = new Map(currentRouteData.estimateTimes.edges.filter(e => e.node.goBack === direction).map(e => [e.node.id, e.node]));
+                if (stations.length === 0) { container.innerHTML = '<p class="text-center py-4 text-slate-500">此方向無站點資料</p>'; return; }
                 stations.forEach(st => {
                     const stationId = st.node.id;
                     let card = container.querySelector(`[data-station-id="${stationId}"]`);
                     const estimate = estimates.get(stationId);
                     const status = getStatus(estimate);
-
                     if (!card) {
                         card = document.createElement('div');
                         card.className = 'station-item bus-card cursor-pointer';
                         card.dataset.stationId = stationId;
-                        card.onclick = () => {
-                            if(st.node.lat) map.flyTo([st.node.lat, st.node.lon], 16);
-                        };
-                        
-                        card.innerHTML = `
-                            <div class="station-icon-container">
-                                <div class="station-dot ${direction === 1 ? 'go-station' : 'back-station'} bg-${direction===1?'blue':'red'}-500"></div>
-                            </div>
-                            <div class="station-content">
-                                <div class="flex items-center w-full">
-                                    <div class="w-24 text-center mr-3">
-                                        <div class="time-pill ${status.colorClass}">
-                                            ${status.text}
-                                        </div>
-                                    </div>
-                                    <div class="flex-1 min-w-0">
-                                        <p class="truncate font-medium">${st.node.name}</p>
-                                    </div>
-                                    ${status.plate ? `<span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded ml-2">${status.plate}</span>` : ''}
-                                </div>
-                            </div>
-                        `;
+                        card.onclick = () => { if(st.node.lat) map.flyTo([st.node.lat, st.node.lon], 16); };
+                        card.innerHTML = `<div class="station-icon-container"><div class="station-dot ${direction === 1 ? 'go-station' : 'back-station'} bg-${direction===1?'blue':'red'}-500"></div></div><div class="station-content"><div class="flex items-center w-full"><div class="w-24 text-center mr-3"><div class="time-pill ${status.colorClass}">${status.text}</div></div><div class="flex-1 min-w-0"><p class="truncate font-medium">${st.node.name}</p></div>${status.plate ? `<span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded ml-2">${status.plate}</span>` : ''}</div></div>`;
                         container.appendChild(card);
                     } else {
                         const pill = card.querySelector('.time-pill');
@@ -644,14 +542,9 @@
                         pill.textContent = status.text;
                         const plateSpan = card.querySelector('span.text-xs');
                         if (status.plate) {
-                            if (!plateSpan) {
-                                card.querySelector('.flex-1').insertAdjacentHTML('afterend', `<span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded ml-2">${status.plate}</span>`);
-                            } else {
-                                plateSpan.textContent = status.plate;
-                            }
-                        } else if (plateSpan) {
-                            plateSpan.remove();
-                        }
+                            if (!plateSpan) card.querySelector('.flex-1').insertAdjacentHTML('afterend', `<span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded ml-2">${status.plate}</span>`);
+                            else plateSpan.textContent = status.plate;
+                        } else if (plateSpan) plateSpan.remove();
                     }
                 });
             }
@@ -659,7 +552,6 @@
             function getStatus(estimate) {
                 if (!estimate) return { text: '末班駛離', colorClass: 'bg-slate-200 text-slate-600' };
                 if (estimate.comeTime) return { text: estimate.comeTime, colorClass: 'bg-slate-200 text-slate-600' };
-                
                 if (estimate.etas && estimate.etas.length > 0) {
                     const eta = estimate.etas[0];
                     const min = eta.etaTime;
@@ -672,65 +564,33 @@
             }
 
             function renderMap(data) {
-                goLayerGroup.clearLayers();
-                backLayerGroup.clearLayers();
-                
-                // 1. Draw Polyline & Stations with Projection
-                const directions = ['go', 'back'];
-                directions.forEach(dir => {
+                goLayerGroup.clearLayers(); backLayerGroup.clearLayers();
+                ['go', 'back'].forEach(dir => {
                     const encoded = data.routePoint[dir];
-                    const isGo = dir === 'go';
                     if (!encoded) return;
-
-                    const decodedPath = decodePolyline(encoded);
-                    const color = isGo ? '#3b82f6' : '#ef4444';
-                    const layerGroup = isGo ? goLayerGroup : backLayerGroup;
-                    const stops = data.stations.edges.filter(e => e.goBack === (isGo ? 1 : 2)).sort((a,b) => a.orderNo - b.orderNo);
-
-                    L.polyline(decodedPath, { color: color, weight: 5, opacity: 0.7 }).addTo(layerGroup);
-
+                    const decoded = decodePolyline(encoded);
+                    const isGo = dir === 'go';
+                    const stops = data.stations.edges.filter(e => e.goBack === (isGo ? 1 : 2)).sort((a,b)=>a.orderNo-b.orderNo);
+                    L.polyline(decoded, { color: isGo ? '#3b82f6' : '#ef4444', weight: 5, opacity: 0.7 }).addTo(isGo ? goLayerGroup : backLayerGroup);
                     stops.forEach(st => {
                         if (st.node.lat) {
-                            const originalLatLng = L.latLng(st.node.lat, st.node.lon);
-                            // Project marker to line
-                            const projectedLatLng = findClosestPointOnPolyline(originalLatLng, decodedPath);
-                            
-                            // Create Numbered Icon
-                            const cssClass = isGo ? 'go-station' : 'back-station';
-                            const icon = L.divIcon({
-                                className: `station-number-icon ${cssClass}`,
-                                html: `<span>${st.orderNo}</span>`,
-                                iconSize: [24, 24],
-                                iconAnchor: [12, 12]
-                            });
-
-                            L.marker(projectedLatLng, { icon: icon, pane: 'stationPane' })
-                                .bindPopup(`<div class="font-bold">${st.node.name}</div><div class="text-xs">站序: ${st.orderNo}</div>`)
-                                .addTo(layerGroup);
+                            const projected = findClosestPointOnPolyline(L.latLng(st.node.lat, st.node.lon), decoded);
+                            const css = isGo ? 'go-station' : 'back-station';
+                            L.marker(projected, { icon: L.divIcon({ className: `station-number-icon ${css}`, html: `<span>${st.orderNo}</span>`, iconSize: [24, 24], iconAnchor: [12, 12] }), pane: 'stationPane' }).bindPopup(`<div class="font-bold">${st.node.name}</div><div class="text-xs">站序: ${st.orderNo}</div>`).addTo(isGo ? goLayerGroup : backLayerGroup);
                         }
                     });
                 });
-
-                // 2. Draw Buses
-                const activeLayer = currentDirection === 1 ? goBusLayerGroup : backBusLayerGroup;
-                activeLayer.clearLayers();
+                const active = currentDirection === 1 ? goBusLayerGroup : backBusLayerGroup;
+                active.clearLayers();
                 data.buses.edges.forEach(bus => {
                     if (bus.goBack === currentDirection) {
-                        const color = currentDirection === 1 ? '#ef4444' : '#3b82f6';
-                        L.marker([bus.node.lat, bus.node.lon], {
-                            icon: L.divIcon({
-                                className: 'bus-marker',
-                                html: `<div style="background:${color}; color:white; width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2px solid white; box-shadow:0 2px 4px rgba(0,0,0,0.3);"><span class="material-icons-outlined" style="font-size:18px">directions_bus</span></div>`,
-                                iconSize: [30, 30]
-                            }),
-                            pane: 'busPane'
-                        }).bindPopup(`<b>車號: ${bus.node.id}</b>`).addTo(activeLayer);
+                        const c = currentDirection === 1 ? '#ef4444' : '#3b82f6';
+                        L.marker([bus.node.lat, bus.node.lon], { icon: L.divIcon({ className: 'bus-marker', html: `<div style="background:${c}; color:white; width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2px solid white; box-shadow:0 2px 4px rgba(0,0,0,0.3);"><span class="material-icons-outlined" style="font-size:18px">directions_bus</span></div>`, iconSize: [30, 30] }), pane: 'busPane' }).bindPopup(`<b>車號: ${bus.node.id}</b>`).addTo(active);
                     }
                 });
-
-                if (isFirstMapLoad && data.stations.edges.length > 0) {
-                    const first = data.stations.edges.find(e => e.goBack === 1);
-                    if(first && first.node.lat) map.setView([first.node.lat, first.node.lon], 14);
+                if (isFirstMapLoad && data.stations.edges.length) {
+                    const f = data.stations.edges.find(e => e.goBack === 1);
+                    if(f && f.node.lat) map.setView([f.node.lat, f.node.lon], 14);
                     isFirstMapLoad = false;
                 }
             }
@@ -738,110 +598,43 @@
             function toggleDirection(dir) {
                 if (currentDirection === dir || isAnimatingDirection) return;
                 isAnimatingDirection = true;
-                
-                const showList = dir === 1 ? stationListGo : stationListBack;
-                const hideList = dir === 1 ? stationListBack : stationListGo;
-
-                // Simple transition classes
-                const slideOut = dir === 2 ? 'slide-out-left' : 'slide-out-right';
-                const slideIn = dir === 2 ? 'slide-in-from-right' : 'slide-in-from-left';
-
-                showList.classList.remove('hidden');
-                hideList.classList.add(slideOut);
-                showList.classList.add(slideIn);
-                
+                const show = dir === 1 ? stationListGo : stationListBack;
+                const hide = dir === 1 ? stationListBack : stationListGo;
+                show.classList.remove('hidden');
+                hide.classList.add(dir === 2 ? 'slide-out-left' : 'slide-out-right');
+                show.classList.add(dir === 2 ? 'slide-in-from-right' : 'slide-in-from-left');
                 currentDirection = dir;
                 updateDirectionUI();
-                
-                setTimeout(() => {
-                    hideList.classList.add('hidden');
-                    hideList.classList.remove(slideOut);
-                    showList.classList.remove(slideIn);
-                    isAnimatingDirection = false;
-                }, 300);
+                setTimeout(() => { hide.classList.add('hidden'); hide.classList.remove('slide-out-left', 'slide-out-right'); show.classList.remove('slide-in-from-right', 'slide-in-from-left'); isAnimatingDirection = false; }, 300);
             }
 
             function updateDirectionUI() {
-                // Button Styles
                 if (currentDirection === 1) {
-                    goDirectionButton.classList.add('bg-blue-500', 'text-white');
-                    goDirectionButton.classList.remove('bg-transparent', 'text-blue-500');
-                    backDirectionButton.classList.add('bg-transparent', 'text-blue-500');
-                    backDirectionButton.classList.remove('bg-blue-500', 'text-white');
-                    map.addLayer(goLayerGroup); map.removeLayer(backLayerGroup);
-                    map.addLayer(goBusLayerGroup); map.removeLayer(backBusLayerGroup);
+                    goDirectionButton.className = "direction-button flex-1 p-0 bg-blue-500 text-white";
+                    backDirectionButton.className = "direction-button flex-1 p-0 bg-transparent text-blue-500";
+                    map.addLayer(goLayerGroup); map.removeLayer(backLayerGroup); map.addLayer(goBusLayerGroup); map.removeLayer(backBusLayerGroup);
                 } else {
-                    backDirectionButton.classList.add('bg-blue-500', 'text-white');
-                    backDirectionButton.classList.remove('bg-transparent', 'text-blue-500');
-                    goDirectionButton.classList.add('bg-transparent', 'text-blue-500');
-                    goDirectionButton.classList.remove('bg-blue-500', 'text-white');
-                    map.addLayer(backLayerGroup); map.removeLayer(goLayerGroup);
-                    map.addLayer(backBusLayerGroup); map.removeLayer(goBusLayerGroup);
+                    backDirectionButton.className = "direction-button flex-1 p-0 bg-blue-500 text-white";
+                    goDirectionButton.className = "direction-button flex-1 p-0 bg-transparent text-blue-500";
+                    map.addLayer(backLayerGroup); map.removeLayer(goLayerGroup); map.addLayer(backBusLayerGroup); map.removeLayer(goBusLayerGroup);
                 }
             }
 
             function scrollToTargetStation(target) {
                 const container = currentDirection === 1 ? stationListGoContent : stationListBackContent;
-                let el = container.querySelector(`[data-station-id="${target}"]`);
-                if (!el) {
-                    const allCards = container.querySelectorAll('.station-item');
-                    for (let card of allCards) {
-                        if (card.innerText.includes(target)) {
-                            el = card;
-                            break;
-                        }
-                    }
-                }
-                
-                if (el) {
-                    // Need to scroll the PARENT container
-                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    el.style.backgroundColor = 'rgba(59, 130, 246, 0.1)';
-                    setTimeout(() => el.style.backgroundColor = '', 1500);
-                    
-                    const stationData = currentRouteData.stations.edges.find(e => String(e.node.id) === el.dataset.stationId);
-                    if (stationData && stationData.node.lat) {
-                        map.flyTo([stationData.node.lat, stationData.node.lon], 16);
-                    }
-                }
+                let el = container.querySelector(`[data-station-id="${target}"]`) || Array.from(container.querySelectorAll('.station-item')).find(card => card.innerText.includes(target));
+                if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.style.backgroundColor = 'rgba(59, 130, 246, 0.1)'; setTimeout(() => el.style.backgroundColor = '', 1500); const d = currentRouteData.stations.edges.find(e => String(e.node.id) === el.dataset.stationId); if (d && d.node.lat) map.flyTo([d.node.lat, d.node.lon], 16); }
             }
 
             function checkMarquee(el) {
-                const container = el.parentElement;
-                
-                // Reset
-                el.innerHTML = el.textContent; 
-                container.classList.remove('is-overflowing');
-
-                // Check
-                if (el.scrollWidth > container.clientWidth) {
-                    container.classList.add('is-overflowing');
-                    const text = el.textContent;
-                    el.innerHTML = `<span class="marquee-inner">${text}</span><span class="marquee-inner">${text}</span>`;
-                }
+                const c = el.parentElement;
+                el.innerHTML = el.textContent; c.classList.remove('is-overflowing');
+                if (el.scrollWidth > c.clientWidth) { c.classList.add('is-overflowing'); el.innerHTML = `<span class="marquee-inner">${el.textContent}</span><span class="marquee-inner">${el.textContent}</span>`; }
             }
 
-            // Timer
-            let countdown = 20;
-            let timer;
-            function startCountdown() {
-                clearInterval(timer);
-                timer = setInterval(() => {
-                    countdown--;
-                    document.getElementById('updateCountdownText').textContent = `${countdown}秒後更新`;
-                    if (countdown <= 0) {
-                        loadBusData(currentRouteId, false);
-                        resetCountdown();
-                    }
-                }, 1000);
-            }
-            function resetCountdown() {
-                countdown = 20;
-                document.getElementById('updateCountdownText').textContent = `${countdown}秒後更新`;
-                const icon = updateCountdownButton.querySelector('.material-icons-outlined');
-                icon.classList.add('spin-update');
-                setTimeout(() => icon.classList.remove('spin-update'), 500);
-            }
+            let countdown = 20, timer;
+            function startCountdown() { clearInterval(timer); timer = setInterval(() => { countdown--; document.getElementById('updateCountdownText').textContent = `${countdown}秒後更新`; if (countdown <= 0) { loadBusData(currentRouteId, false); resetCountdown(); } }, 1000); }
+            function resetCountdown() { countdown = 20; document.getElementById('updateCountdownText').textContent = `${countdown}秒後更新`; const i = updateCountdownButton.querySelector('.material-icons-outlined'); i.classList.add('spin-update'); setTimeout(() => i.classList.remove('spin-update'), 500); }
 
             init();
         });
