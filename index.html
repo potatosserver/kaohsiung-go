@@ -155,7 +155,7 @@
             UBIKE_LIST: 'https://apis.youbike.com.tw/json/station-min-yb2.json', 
             UBIKE_REALTIME: 'https://apis.youbike.com.tw/tw2/parkingInfo', 
             IBUS_API: 'https://ibus.tbkc.gov.tw/ibus/graphql', 
-            TRACKER_BASE: 'https://kaohsiung-go.pages.dev/bus.html', 
+            TRACKER_BASE: 'https://kaohsiung-go.pages.dev/bus', 
             
             PROXY_URL: 'https://corsproxy.io/?', 
             PROXY_SEC: 'https://cors-anywhere.potatosserver.workers.dev/?url=', 
@@ -260,7 +260,7 @@
             const rn=document.getElementById('nav-route-name').innerText;
             t.innerText=`${rn} 路線動態`;
             let u=`${CONFIG.TRACKER_BASE}&route=${STATE.pendingRouteId}`;
-            if(STATE.pendingStationId) u+=`&station=${STATE.pendingStationId}`;
+            if(STATE.pendingStationId) u+=`?station=${STATE.pendingStationId}`;
             i.src=u;
             im.classList.remove('hidden');
             history.replaceState({modal:'iframe'},'');
