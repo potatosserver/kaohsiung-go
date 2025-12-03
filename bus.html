@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="color-scheme" content="light dark" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>高雄市公車動態 - 精簡版</title>
+    <title>高雄市公車動態 - 原始邏輯修復版</title>
 
     <!-- Leaflet.js -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -58,33 +58,57 @@
             max-width: 100%;
         }
 
-        /* --- Header & Buttons --- */
+        /* --- Header & Buttons (Original Logic) --- */
         header {
             flex-shrink: 0;
             background-color: #fff;
-            padding: 0.75rem;
+            padding: 0.5rem;
             box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
             z-index: 20;
         }
         
         .direction-toggle-group {
             display: flex;
+            justify-content: center;
             width: 100%;
-            gap: 8px; /* Gap between buttons */
+            gap: 8px;
         }
 
         .direction-button {
             flex: 1;
             display: flex;
             align-items: center;
-            justify-content: center;
+            justify-content: center; /* Centers content when flex-grow is 0 */
             overflow: hidden;
-            transition: all 0.2s;
             height: 48px;
             border-radius: 0.5rem;
             font-weight: 600;
             font-size: 0.95rem;
-            border: 2px solid transparent; /* Prepare for border */
+            border: 2px solid transparent;
+            padding: 0 8px;
+        }
+
+        .direction-button .static-text {
+            flex-shrink: 0;
+            white-space: nowrap;
+        }
+
+        .direction-button .marquee-container {
+            /* flex-grow is handled by JS: 0 for center, 1 for marquee */
+            overflow: hidden;
+            white-space: nowrap;
+        }
+
+        .direction-button .marquee-text {
+            display: inline-block;
+            white-space: nowrap;
+            will-change: transform;
+        }
+
+        /* The Animation Keyframes from Original File */
+        @keyframes marquee-scroll {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-50%); }
         }
 
         /* Button Colors */
@@ -97,48 +121,6 @@
             background-color: transparent;
             color: #3b82f6;
             border-color: #3b82f6;
-        }
-
-        /* --- Marquee Logic --- */
-        .direction-content-wrapper {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 100%;
-            padding: 0 4px;
-        }
-        
-        .static-text {
-            flex-shrink: 0;
-            white-space: nowrap;
-        }
-
-        .marquee-container {
-            flex: 0 1 auto; /* Allows shrinking but not growing beyond content */
-            overflow: hidden;
-            white-space: nowrap;
-            min-width: 0; /* CRITICAL: Enables flex item to shrink below content size */
-            display: flex; /* Keeps inner text properly aligned */
-        }
-
-        .marquee-text {
-            display: inline-block;
-            white-space: nowrap;
-        }
-
-        @keyframes marquee-scroll {
-            0% { transform: translateX(0); }
-            100% { transform: translateX(-50%); }
-        }
-
-        .marquee-text.is-overflowing {
-            animation: marquee-scroll 8s linear infinite;
-            padding-right: 20px; /* Space for the loop */
-        }
-        
-        .marquee-inner {
-            display: inline-block;
-            padding-right: 2.5rem; /* Gap between duplicated text */
         }
 
         /* --- Split View (Map/List) --- */
@@ -262,13 +244,12 @@
             font-weight: 700;
             font-size: 0.9em;
         }
-        /* Pill Colors */
         .bg-slate-200 { background-color: #e2e8f0; color: #1e293b; } 
         .bg-red-200 { background-color: #fee2e2; color: #b91c1c; } 
         .bg-green-200 { background-color: #dcfce7; color: #166534; } 
         .bg-blue-200 { background-color: #dbeafe; color: #1e40af; }
 
-        /* --- List Transitions --- */
+        /* --- Transitions --- */
         .hidden { display: none !important; }
         .slide-out-left { animation: slide-out-left 0.3s ease-out forwards; }
         .slide-in-from-right { animation: slide-in-from-right 0.3s ease-in forwards; }
@@ -362,20 +343,16 @@
              <header>
                 <div class="direction-toggle-group">
                     <button id="goDirectionButton" class="direction-button btn-active" data-direction="1">
-                        <div class="direction-content-wrapper">
-                            <span class="static-text">去程往&nbsp;</span>
-                            <div class="marquee-container">
-                                <span class="marquee-text">--</span>
-                            </div>
-                        </div>
+                        <span class="static-text">去程往&nbsp;</span>
+                        <span class="marquee-container">
+                            <span class="marquee-text">--</span>
+                        </span>
                     </button>
                     <button id="backDirectionButton" class="direction-button btn-inactive" data-direction="2">
-                        <div class="direction-content-wrapper">
-                            <span class="static-text">返程往&nbsp;</span>
-                            <div class="marquee-container">
-                                <span class="marquee-text">--</span>
-                            </div>
-                        </div>
+                        <span class="static-text">返程往&nbsp;</span>
+                        <span class="marquee-container">
+                            <span class="marquee-text">--</span>
+                        </span>
                     </button>
                 </div>
             </header>
@@ -448,7 +425,6 @@
             };
 
             function decodePolyline(t){for(var n,o,u=0,l=0,r=0,d= [],h=0,i=0,a=null,c=Math.pow(10,5);u<t.length;){a=null,h=0,i=0;do a=t.charCodeAt(u++)-63,i|=(31&a)<<h,h+=5;while(a>=32);n=1&i?~(i>>1):i>>1,h=i=0;do a=t.charCodeAt(u++)-63,i|=(31&a)<<h,h+=5;while(a>=32);o=1&i?~(i>>1):i>>1,l+=n,r+=o,d.push([l/c,r/c])}return d}
-            
             function findClosestPointOnPolyline(point, polyline) {
                 let minDistanceSquared = Infinity;
                 let closestPoint = null;
@@ -505,7 +481,6 @@
                 backDirectionButton.addEventListener('click', () => toggleDirection(2));
                 updateCountdownButton.addEventListener('click', () => { resetCountdown(); loadBusData(currentRouteId, false); });
 
-                // Drag Logic
                 const dragHandle = document.getElementById('dragHandle');
                 const panel = document.getElementById('estimateTimesSection');
                 const contentWrapper = document.getElementById('content-wrapper');
@@ -521,7 +496,6 @@
                 }, { passive: true });
                 document.addEventListener('touchend', () => { isDragging = false; });
 
-                // Swipe Logic
                 let touchStartX = 0, touchStartY = 0;
                 estimateTimesSection.addEventListener('touchstart', (e) => { if (e.target.closest('#dragHandle')) return; touchStartX = e.changedTouches[0].screenX; touchStartY = e.changedTouches[0].screenY; }, { passive: true });
                 estimateTimesSection.addEventListener('touchend', (e) => {
@@ -573,49 +547,73 @@
                 }
             }
 
-            function updateHeaderInfo() {
-                const goTextEl = goDirectionButton.querySelector('.marquee-text');
-                const backTextEl = backDirectionButton.querySelector('.marquee-text');
+            // --- The Fixed Logic from Original File ---
+            function checkMarqueeOverflow(container, textElement, originalText) {
+                if (!container || !textElement) return;
+                const oldText = textElement.dataset.originalText;
                 
-                goTextEl.textContent = currentRouteData.destination;
-                backTextEl.textContent = currentRouteData.departure;
+                // If text hasn't changed and already overflowing, do nothing
+                if (oldText === originalText && textElement.classList.contains('is-overflowing')) {
+                    return; 
+                }
+                
+                textElement.dataset.originalText = originalText;
+                // Important: temporarily set grow to 1 to measure true available space? 
+                // Actually, the original logic sets it to 1 to allow expansion for calculation.
+                container.style.flexGrow = '1';
+                textElement.classList.remove('is-overflowing');
+                textElement.style.animation = 'none';
+                textElement.textContent = originalText; 
                 
                 requestAnimationFrame(() => {
-                    checkMarquee(goTextEl);
-                    checkMarquee(backTextEl);
+                    const containerWidth = container.clientWidth;
+                    const textWidth = textElement.scrollWidth;
+                    const isOverflowing = textWidth > containerWidth;
+                    
+                    if (isOverflowing) {
+                        // Marquee Mode
+                        const gap = '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;';
+                        const unitText = `${gap}${originalText}`;
+                        const fullMarqueeText = `${unitText}${unitText}`; 
+                        textElement.innerHTML = fullMarqueeText;
+                        
+                        requestAnimationFrame(() => {
+                            const scrollWidth = textElement.scrollWidth / 2; 
+                            const duration = scrollWidth / 40; // Speed control
+                            textElement.style.animation = `marquee-scroll ${Math.max(8, duration)}s linear infinite`;
+                            textElement.classList.add('is-overflowing');
+                        });
+                    } else {
+                        // Centered Mode
+                        container.style.flexGrow = '0'; 
+                        textElement.textContent = originalText; 
+                        textElement.classList.remove('is-overflowing');
+                    }
                 });
             }
 
-            function checkMarquee(el) {
-                const container = el.parentElement; // .marquee-container
-                const text = el.textContent.trim(); // Get raw text
+            function updateHeaderInfo() {
+                const goMarqueeContainer = goDirectionButton.querySelector('.marquee-container');
+                const goMarqueeText = goDirectionButton.querySelector('.marquee-text');
+                const backMarqueeContainer = backDirectionButton.querySelector('.marquee-container');
+                const backMarqueeText = backDirectionButton.querySelector('.marquee-text');
                 
-                // Reset to raw text to measure natural width
-                el.innerHTML = text; 
-                el.classList.remove('is-overflowing');
-                el.parentElement.classList.remove('is-overflowing'); // Clean up
-
-                // Logic: If content width > container width (which is flexed)
-                if (el.scrollWidth > container.clientWidth) {
-                    el.classList.add('is-overflowing');
-                    // Create duplicated content for seamless loop
-                    el.innerHTML = `<span class="marquee-inner">${text}</span><span class="marquee-inner">${text}</span>`;
-                }
+                const goText = currentRouteData.destination;
+                const backText = currentRouteData.departure;
+                
+                checkMarqueeOverflow(goMarqueeContainer, goMarqueeText, goText);
+                checkMarqueeOverflow(backMarqueeContainer, backMarqueeText, backText);
             }
 
             function renderList(direction, container) {
                 const stations = currentRouteData.stations.edges.filter(e => e.goBack === direction).sort((a, b) => a.orderNo - b.orderNo);
                 const estimates = new Map(currentRouteData.estimateTimes.edges.filter(e => e.node.goBack === direction).map(e => [e.node.id, e.node]));
                 if (stations.length === 0) { container.innerHTML = '<p class="text-center py-4 text-slate-500">此方向無站點資料</p>'; return; }
-                
-                // Clear existing content safely if needed, or use simple diffing (here clearing for simplicity in this version)
                 container.innerHTML = '';
-
                 stations.forEach(st => {
                     const stationId = st.node.id;
                     const estimate = estimates.get(stationId);
                     const status = getStatus(estimate);
-                    
                     const card = document.createElement('div');
                     card.className = 'station-item bus-card cursor-pointer';
                     card.dataset.stationId = stationId;
