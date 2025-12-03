@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="color-scheme" content="light dark" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>高雄市公車動態 - 原始邏輯復刻版</title>
+    <title>高雄市公車動態</title>
 
     <!-- Leaflet.js -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -58,7 +58,7 @@
             max-width: 100%;
         }
 
-        /* --- Header & Buttons (Original Logic) --- */
+        /* --- Header & Buttons (Strict Flexbox) --- */
         header {
             flex-shrink: 0;
             background-color: #fff;
@@ -69,16 +69,19 @@
         
         .direction-toggle-group {
             display: flex;
+            flex-direction: row; /* Force Row */
             justify-content: center;
             width: 100%;
-            gap: 8px; /* 空隙 */
+            gap: 8px;
         }
 
         .direction-button {
             flex: 1;
             display: flex;
+            flex-direction: row; /* CRITICAL: Force contents to be side-by-side */
+            flex-wrap: nowrap; /* CRITICAL: Prevent wrapping */
             align-items: center;
-            justify-content: center; /* 關鍵：讓內容在 flex-grow:0 時置中 */
+            justify-content: center; /* Centers content when flex-grow is 0 */
             overflow: hidden;
             height: 48px;
             border-radius: 0.5rem;
@@ -86,18 +89,20 @@
             font-size: 0.95rem;
             border: 2px solid transparent;
             padding: 0 4px;
+            min-width: 0; /* Allows shrinking */
         }
 
         .direction-button .static-text {
-            flex-shrink: 0;
-            padding-right: 0.25rem;
+            flex-shrink: 0; /* Never shrink the "Go To" text */
             white-space: nowrap;
         }
 
         .direction-button .marquee-container {
-            /* 預設不設定 flex-grow，由 JS 控制 */
+            /* flex-grow handled by JS */
             overflow: hidden;
             white-space: nowrap;
+            min-width: 0; /* Allow shrinking below content size */
+            display: block; /* Ensure it behaves as a block for width calc */
         }
 
         .direction-button .marquee-text {
@@ -106,7 +111,7 @@
             will-change: transform;
         }
 
-        /* Marquee Animation */
+        /* Animation */
         @keyframes marquee-scroll {
             0% { transform: translateX(0); }
             100% { transform: translateX(-50%); }
@@ -114,19 +119,15 @@
 
         .direction-button .marquee-text.is-overflowing {
             animation: marquee-scroll 10s linear infinite;
+            padding-right: 20px; /* Space for loop */
         }
         
-        /* List Item Marquee Animation (Slightly different timing often used) */
-        .marquee-text.list-scrolling {
-            animation: marquee-scroll 8s linear infinite;
-        }
-
         .marquee-inner { 
             display: inline-block; 
             padding-right: 2.5rem; 
         }
 
-        /* Button Colors */
+        /* Colors */
         .btn-active {
             background-color: #3b82f6;
             color: white;
@@ -138,7 +139,7 @@
             border-color: #3b82f6;
         }
 
-        /* --- Split View (Map/List) --- */
+        /* --- Split View --- */
         #content-wrapper {
             flex-grow: 1;
             display: flex;
@@ -249,7 +250,7 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            overflow: hidden; /* 防止內容撐開 */
+            overflow: hidden; 
         }
         
         .time-pill {
@@ -264,6 +265,22 @@
         .bg-red-200 { background-color: #fee2e2; color: #b91c1c; } 
         .bg-green-200 { background-color: #dcfce7; color: #166534; } 
         .bg-blue-200 { background-color: #dbeafe; color: #1e40af; }
+
+        /* List Marquee */
+        .list-marquee-container {
+            overflow: hidden;
+            white-space: nowrap;
+            min-width: 0;
+            display: block;
+        }
+        .list-marquee-text {
+            display: inline-block;
+            white-space: nowrap;
+        }
+        .list-marquee-text.is-overflowing {
+            animation: marquee-scroll 8s linear infinite;
+            padding-right: 20px;
+        }
 
         /* --- Transitions --- */
         .hidden { display: none !important; }
@@ -539,19 +556,21 @@
                     if (!result.data || !result.data.route) throw new Error("查無此路線");
                     
                     currentRouteData = result.data.route;
-                    updateHeaderInfo();
-
-                    if (isInitial && scrollToStation && currentRouteData.stations) {
-                        const targetEdge = currentRouteData.stations.edges.find(e => String(e.node.id) === String(scrollToStation) || e.node.name === scrollToStation);
-                        if (targetEdge) currentDirection = targetEdge.goBack;
-                    }
-
+                    
+                    // Render UI
                     renderList(1, stationListGoContent);
                     renderList(2, stationListBackContent);
                     renderMap(currentRouteData);
                     updateDirectionUI();
                     
-                    if (isInitial && scrollToStation) setTimeout(() => scrollToTargetStation(scrollToStation), 500);
+                    // Update Headers with Marquee check
+                    updateHeaderInfo();
+
+                    if (isInitial && scrollToStation && currentRouteData.stations) {
+                        const targetEdge = currentRouteData.stations.edges.find(e => String(e.node.id) === String(scrollToStation) || e.node.name === scrollToStation);
+                        if (targetEdge) currentDirection = targetEdge.goBack;
+                        setTimeout(() => scrollToTargetStation(scrollToStation), 500);
+                    }
 
                     trackerLoading.style.display = 'none';
                     errorNotice.classList.add('hidden');
@@ -565,18 +584,13 @@
                 }
             }
 
-            // --- 原始的跑馬燈邏輯 (Header) ---
+            // --- 核心修復：使用原始的 JS 邏輯來控制 flex-grow ---
             function checkMarqueeOverflow(container, textElement, originalText) {
                 if (!container || !textElement) return;
-                const oldText = textElement.dataset.originalText;
                 
-                if (oldText === originalText && textElement.classList.contains('is-overflowing')) {
-                    return; 
-                }
-                
+                // Reset state
                 textElement.dataset.originalText = originalText;
-                
-                // 1. 強制設定 flex-grow: 1 讓它撐開以進行測量 (這是原始邏輯的關鍵)
+                // 1. 強制設定 flex-grow: 1 讓它撐開以進行測量
                 container.style.flexGrow = '1';
                 textElement.classList.remove('is-overflowing');
                 textElement.style.animation = 'none';
@@ -588,7 +602,7 @@
                     const isOverflowing = textWidth > containerWidth;
                     
                     if (isOverflowing) {
-                        // 溢出：維持 flex-grow: 1，製作跑馬燈 HTML
+                        // 溢出：維持 flex-grow: 1 (保持寬度)，製作跑馬燈
                         const gap = '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;';
                         const unitText = `${gap}${originalText}`;
                         const fullMarqueeText = `${unitText}${unitText}`; 
@@ -601,7 +615,8 @@
                             textElement.classList.add('is-overflowing');
                         });
                     } else {
-                        // 未溢出：設定 flex-grow: 0，讓它縮回文字寬度，從而使父層的 center 生效
+                        // 未溢出：設定 flex-grow: 0，讓它縮回文字寬度
+                        // 配合父層 .direction-button 的 justify-content: center，這會讓它置中
                         container.style.flexGrow = '0'; 
                         textElement.textContent = originalText; 
                         textElement.classList.remove('is-overflowing');
@@ -618,28 +633,26 @@
                 const goText = currentRouteData.destination;
                 const backText = currentRouteData.departure;
                 
-                // 使用 setTimeout 確保 DOM 渲染完畢後執行，解決"首次載入不跑"的問題
+                // 使用 setTimeout 確保 DOM 渲染完畢後執行 (雙重保險)
                 setTimeout(() => {
                     checkMarqueeOverflow(goMarqueeContainer, goMarqueeText, goText);
                     checkMarqueeOverflow(backMarqueeContainer, backMarqueeText, backText);
-                }, 50);
+                }, 100);
             }
 
-            // --- 列表的跑馬燈檢查邏輯 ---
+            // --- 列表跑馬燈 ---
             function checkListMarquee(el) {
                 if(!el) return;
                 const container = el.parentElement;
                 
                 el.innerHTML = el.textContent; 
-                el.classList.remove('list-scrolling');
+                el.classList.remove('is-overflowing');
                 
-                // 列表寬度受限，若內容大於容器則滾動
+                // 檢查是否溢出容器
                 if (el.scrollWidth > container.clientWidth) {
                     const text = el.textContent;
                     el.innerHTML = `<span class="marquee-inner">${text}</span><span class="marquee-inner">${text}</span>`;
-                    el.querySelector('.marquee-inner').classList.add('list-scrolling'); // Use inner for animation or parent
-                    // Simple animation application
-                    el.classList.add('list-scrolling');
+                    el.classList.add('is-overflowing');
                 }
             }
 
@@ -674,8 +687,8 @@
                                     <div class="time-pill ${status.colorClass}">${status.text}</div>
                                 </div>
                                 <div class="flex-1 min-w-0 overflow-hidden">
-                                    <div class="marquee-container" style="display:block;">
-                                        <span class="marquee-text font-medium text-slate-800 dark:text-slate-200">${st.node.name}</span>
+                                    <div class="list-marquee-container">
+                                        <span class="list-marquee-text font-medium text-slate-800 dark:text-slate-200">${st.node.name}</span>
                                     </div>
                                 </div>
                                 ${status.plate ? `<span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded ml-2 flex-shrink-0">${status.plate}</span>` : ''}
@@ -684,9 +697,9 @@
                     
                     container.appendChild(card);
                     
-                    // 對每個新增的站牌執行跑馬燈檢查
+                    // 檢查列表項目的跑馬燈
                     requestAnimationFrame(() => {
-                        checkListMarquee(card.querySelector('.marquee-text'));
+                        checkListMarquee(card.querySelector('.list-marquee-text'));
                     });
                 });
             }
@@ -763,22 +776,3 @@
             }
 
             function scrollToTargetStation(target) {
-                const container = currentDirection === 1 ? document.getElementById('stationListGoContent').parentElement : document.getElementById('stationListBackContent').parentElement;
-                let el = container.querySelector(`[data-station-id="${target}"]`) || Array.from(container.querySelectorAll('.station-item')).find(card => card.innerText.includes(target));
-                if (el) {
-                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    el.style.backgroundColor = 'rgba(59, 130, 246, 0.1)'; setTimeout(() => el.style.backgroundColor = '', 1500);
-                    const st = currentRouteData.stations.edges.find(e => String(e.node.id) === el.dataset.stationId);
-                    if (st && st.node.lat) map.flyTo([st.node.lat, st.node.lon], 16);
-                }
-            }
-
-            let countdown = 20, timer;
-            function startCountdown() { clearInterval(timer); timer = setInterval(() => { countdown--; document.getElementById('updateCountdownText').textContent = `${countdown}秒後更新`; if (countdown <= 0) { loadBusData(currentRouteId, false); resetCountdown(); } }, 1000); }
-            function resetCountdown() { countdown = 20; document.getElementById('updateCountdownText').textContent = `${countdown}秒後更新`; const icon = updateCountdownButton.querySelector('.material-icons-outlined'); icon.classList.add('spin-update'); setTimeout(() => icon.classList.remove('spin-update'), 500); }
-
-            init();
-        });
-    </script>
-</body>
-</html>
