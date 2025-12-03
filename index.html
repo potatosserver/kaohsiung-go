@@ -259,8 +259,15 @@
             m.classList.add('hidden'); 
             const rn=document.getElementById('nav-route-name').innerText;
             t.innerText=`${rn} 路線動態`;
-            let u=`${CONFIG.TRACKER_BASE}&route=${STATE.pendingRouteId}`;
-            if(STATE.pendingStationId) u+=`?station=${STATE.pendingStationId}`;
+        
+            // --- 修改重點開始 ---
+            // 1. 第一個參數 (route) 前面必須是用 ?
+            let u=`${CONFIG.TRACKER_BASE}?route=${STATE.pendingRouteId}`;
+            
+            // 2. 第二個參數 (station) 前面必須是用 &
+            if(STATE.pendingStationId) u+=`&station=${STATE.pendingStationId}`;
+            // --- 修改重點結束 ---
+        
             i.src=u;
             im.classList.remove('hidden');
             history.replaceState({modal:'iframe'},'');
