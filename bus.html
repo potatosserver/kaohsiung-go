@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="color-scheme" content="light dark" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>高雄市公車動態 - 簡化修正版</title>
+    <title>高雄市公車動態</title>
 
     <!-- Leaflet.js (for Map) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -310,13 +310,13 @@
                 <div class="flex justify-center rounded-lg border-2 border-blue-500 overflow-hidden text-sm w-full max-w-lg mx-auto">
                     <button id="goDirectionButton" class="direction-button flex-1 p-2 font-semibold bg-blue-500 text-white" data-direction="1">
                         <div class="direction-content-wrapper">
-                            <span class="static-text">去程往 </span>
+                            <span class="static-text">去程往&nbsp;</span>
                             <span class="marquee-container"><span class="marquee-text">--</span></span>
                         </div>
                     </button>
                     <button id="backDirectionButton" class="direction-button flex-1 p-2 font-semibold bg-transparent text-blue-500" data-direction="2">
                         <div class="direction-content-wrapper">
-                            <span class="static-text">返程往 </span>
+                            <span class="static-text">返程往&nbsp;</span>
                             <span class="marquee-container"><span class="marquee-text">--</span></span>
                         </div>
                     </button>
@@ -394,7 +394,7 @@
                 `
             };
 
-            // --- Map Utils (Projection Logic Restored) ---
+            // --- Map Utils (Projection Logic) ---
             function decodePolyline(t){for(var n,o,u=0,l=0,r=0,d= [],h=0,i=0,a=null,c=Math.pow(10,5);u<t.length;){a=null,h=0,i=0;do a=t.charCodeAt(u++)-63,i|=(31&a)<<h,h+=5;while(a>=32);n=1&i?~(i>>1):i>>1,h=i=0;do a=t.charCodeAt(u++)-63,i|=(31&a)<<h,h+=5;while(a>=32);o=1&i?~(i>>1):i>>1,l+=n,r+=o,d.push([l/c,r/c])}return d}
             
             function findClosestPointOnPolyline(point, polyline) {
@@ -503,7 +503,7 @@
 
                 document.addEventListener('touchend', () => { isDragging = false; });
 
-                // --- Horizontal Swipe Logic for Direction (Restored) ---
+                // --- Horizontal Swipe Logic for Direction ---
                 let touchStartX = 0, touchStartY = 0;
                 estimateTimesSection.addEventListener('touchstart', (e) => {
                     if (e.target.closest('#dragHandle')) return;
@@ -520,12 +520,11 @@
 
                     // Threshold of 50px, horizontal dominant
                     if (Math.abs(diffX) > 50 && Math.abs(diffX) > Math.abs(diffY)) {
-                        const newDir = diffX > 0 ? 2 : 1; // Right swipe = go left (Back), Left swipe = go right (Go) ... Wait
-                        // Swipe Right (finger moves ->) usually implies "Go Back / Previous". 
-                        // Swipe Left (finger moves <-) usually implies "Go Next".
-                        // Logic: 
-                        // If current is 1 (Go), swipe left -> show 2 (Back).
-                        // If current is 2 (Back), swipe right -> show 1 (Go).
+                        // Swipe Right (<--) means go to previous (Back -> Go), Swipe Left (-->) means go to next (Go -> Back)
+                        // Wait, UX usually is: swipe left (move finger left) to see right content.
+                        // Go (Left Tab) | Back (Right Tab)
+                        // If on Go, swipe left -> Back.
+                        // If on Back, swipe right -> Go.
                         
                         if (diffX < 0 && currentDirection === 1) toggleDirection(2);
                         if (diffX > 0 && currentDirection === 2) toggleDirection(1);
@@ -820,14 +819,13 @@
             }
 
             function checkMarquee(el) {
-                // If content is wider than container, trigger marquee
-                // We access the parent span (marquee-container) to check constraints
                 const container = el.parentElement;
                 
-                // Reset to allow measurement
+                // Reset
                 el.innerHTML = el.textContent; 
                 container.classList.remove('is-overflowing');
 
+                // Check
                 if (el.scrollWidth > container.clientWidth) {
                     container.classList.add('is-overflowing');
                     const text = el.textContent;
