@@ -179,7 +179,11 @@
             display: flex;
             flex-direction: column;
             position: relative;
+            
+            /* 修改：手機版卡片設計 (圓角與陰影) */
             border-top: 1px solid #cbd5e1;
+            border-radius: 24px 24px 0 0; /* 上方左右圓角 */
+            box-shadow: 0 -4px 6px -1px rgba(0, 0, 0, 0.1), 0 -2px 4px -1px rgba(0, 0, 0, 0.06); /* 上方陰影 */
             z-index: 10;
         }
 
@@ -196,6 +200,9 @@
             border-bottom: 1px solid #e2e8f0;
             touch-action: none;
             z-index: 20;
+            
+            /* 修改：拖曳桿也需要圓角，否則會蓋住卡片的圓角 */
+            border-radius: 24px 24px 0 0;
         }
         #dragHandle::before {
             content: '';
@@ -216,7 +223,6 @@
             top: 0; left: 0; right: 0; bottom: 0;
             overflow-y: auto;
             -webkit-overflow-scrolling: touch;
-            /* 手機版底部間距：避開按鈕 */
             padding: 1rem 1rem 50px 0;
         }
         #stationListGoContent, #stationListBackContent {
@@ -312,7 +318,7 @@
         /* --- Update Button --- */
         #updateCountdown {
             position: fixed;
-            bottom: 10px; /* 貼近底部 */
+            bottom: 10px;
             left: 50%;
             transform: translateX(-50%);
             z-index: 1001;
@@ -331,9 +337,9 @@
         }
         #updateCountdownText {
             display: inline-block;
-            width: 5.2em; /* 修改：使用固定寬度取代 min-width，確保寬度完全鎖死 */
+            width: 5.2em;
             text-align: left;
-            white-space: nowrap; /* 確保不換行 */
+            white-space: nowrap;
         }
         @keyframes spin-180 { from { transform: rotate(0deg); } to { transform: rotate(180deg); } }
         .spin-update { animation: spin-180 0.5s ease forwards; }
@@ -399,7 +405,7 @@
                  height: 100% !important;
                  order: 1; 
                  border: none;
-                 border-radius: 24px;
+                 border-radius: 24px; /* 電腦版維持四角全圓角 */
                  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
                  background-color: #ffffff;
              }
