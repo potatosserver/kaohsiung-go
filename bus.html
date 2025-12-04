@@ -180,10 +180,9 @@
             flex-direction: column;
             position: relative;
             
-            /* 修改：手機版卡片設計 (圓角與陰影) */
             border-top: 1px solid #cbd5e1;
-            border-radius: 24px 24px 0 0; /* 上方左右圓角 */
-            box-shadow: 0 -4px 6px -1px rgba(0, 0, 0, 0.1), 0 -2px 4px -1px rgba(0, 0, 0, 0.06); /* 上方陰影 */
+            border-radius: 24px 24px 0 0;
+            box-shadow: 0 -4px 6px -1px rgba(0, 0, 0, 0.1), 0 -2px 4px -1px rgba(0, 0, 0, 0.06);
             z-index: 10;
         }
 
@@ -201,7 +200,6 @@
             touch-action: none;
             z-index: 20;
             
-            /* 修改：拖曳桿也需要圓角，否則會蓋住卡片的圓角 */
             border-radius: 24px 24px 0 0;
         }
         #dragHandle::before {
@@ -405,14 +403,13 @@
                  height: 100% !important;
                  order: 1; 
                  border: none;
-                 border-radius: 24px; /* 電腦版維持四角全圓角 */
+                 border-radius: 24px;
                  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
                  background-color: #ffffff;
              }
              
              #dragHandle { display: none; }
 
-             /* 電腦模式下無需避開按鈕 */
              .station-list-container {
                  padding-bottom: 1rem;
              }
@@ -592,7 +589,6 @@
                 document.addEventListener('touchmove', (e) => {
                     if (!isDragging) return;
                     const deltaY = startY - e.touches[0].clientY;
-                    // 修改：最小高度限制為 75px，確保拖曳桿位於按鈕上方
                     const newHeight = Math.min(Math.max(startHeight + deltaY, 75), contentWrapper.offsetHeight);
                     panel.style.height = `${newHeight}px`;
                     map.invalidateSize();
@@ -663,7 +659,6 @@
             function checkMarqueeOverflow(container, textElement, originalText) {
                 if (!container || !textElement) return;
                 
-                // NO RESET CHECK: 如果文字一樣，且已經是溢出狀態，不重置
                 const oldText = textElement.dataset.originalText;
                 if (oldText === originalText && textElement.classList.contains('is-overflowing')) {
                     return; 
@@ -719,7 +714,6 @@
                 if(!el) return;
                 const container = el.parentElement;
                 
-                // 列表不常變動，這裡簡單處理，避免重置
                 if (el.classList.contains('is-overflowing') && el.dataset.originalText === el.textContent) return;
 
                 el.dataset.originalText = el.textContent;
@@ -742,7 +736,6 @@
                     return; 
                 }
                 
-                // --- Updated Render Logic: Update Existing or Create New ---
                 const existingCards = Array.from(container.children);
                 const cardsById = new Map(existingCards.map(c => [c.dataset.stationId, c]));
 
@@ -755,7 +748,6 @@
                     if (card) {
                         // UPDATE EXISTING
                         const pill = card.querySelector('.time-pill');
-                        // Only touch DOM if changed
                         if (pill.textContent !== status.text) {
                             pill.className = `time-pill ${status.colorClass}`;
                             pill.textContent = status.text;
@@ -763,11 +755,9 @@
                              pill.className = `time-pill ${status.colorClass}`;
                         }
                         
-                        // Handle plate update logic (simplified)
                         let plateSpan = card.querySelector('.plate-number');
                         if (status.plate) {
                             if (!plateSpan) {
-                                // Add plate
                                 const plateHtml = `<span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded ml-2 flex-shrink-0 plate-number">${status.plate}</span>`;
                                 card.querySelector('.station-content > div').insertAdjacentHTML('beforeend', plateHtml);
                             } else if (plateSpan.textContent !== status.plate) {
@@ -777,7 +767,6 @@
                             plateSpan.remove();
                         }
 
-                        // Ensure order
                         if (container.children[index] !== card) {
                             container.insertBefore(card, container.children[index]);
                         }
@@ -823,22 +812,42 @@
                     }
                 });
 
-                // Remove stale cards
                 while (container.children.length > stations.length) {
                     container.removeChild(container.lastChild);
                 }
             }
 
             function getStatus(estimate) {
+                // 1. 如果完全沒有資料
                 if (!estimate) return { text: '末班駛離', colorClass: 'bg-slate-200' };
-                if (estimate.comeTime) return { text: estimate.comeTime, colorClass: 'bg-slate-200' };
+
+                // 2. 優先判斷即時動態 (etas)
                 if (estimate.etas && estimate.etas.length > 0) {
                     const eta = estimate.etas[0];
-                    if (eta.etaTime === null) return { text: '未發車', colorClass: 'bg-slate-200' };
-                    if (eta.etaTime <= 1) return { text: '進站中', colorClass: 'bg-red-200', plate: eta.busId };
-                    if (eta.etaTime <= 3) return { text: '即將抵達', colorClass: 'bg-green-200', plate: eta.busId };
-                    return { text: `${eta.etaTime} 分`, colorClass: 'bg-blue-200', plate: eta.busId };
+                    
+                    // 確保 etaTime 有數值且不是 null
+                    if (eta.etaTime !== null && eta.etaTime !== undefined) {
+                        if (eta.etaTime < 1) {
+                            // 小於 1 分鐘 -> 進站中 (紅色)
+                            return { text: '進站中', colorClass: 'bg-red-200', plate: eta.busId };
+                        } 
+                        else if (eta.etaTime === 1) {
+                            // 等於 1 分鐘 -> 即將抵達 (綠色)
+                            return { text: '即將抵達', colorClass: 'bg-green-200', plate: eta.busId };
+                        } 
+                        else {
+                            // 大於 1 分鐘 -> 顯示分鐘數 (藍色)
+                            return { text: `${eta.etaTime} 分`, colorClass: 'bg-blue-200', plate: eta.busId };
+                        }
+                    }
                 }
+
+                // 3. 如果沒有即時動態，才顯示表定時間 (comeTime)
+                if (estimate.comeTime) {
+                    return { text: estimate.comeTime, colorClass: 'bg-slate-200' };
+                }
+
+                // 4. 若以上皆無
                 return { text: '末班駛離', colorClass: 'bg-slate-200' };
             }
 
