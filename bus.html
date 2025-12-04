@@ -633,6 +633,14 @@
                         if (diffX > 0 && currentDirection === 2) toggleDirection(1);
                     }
                 }, { passive: true });
+
+                // 頁面重新聚焦時自動更新
+                document.addEventListener('visibilitychange', () => {
+                    if (document.visibilityState === 'visible' && currentRouteId) {
+                        resetCountdown();
+                        loadBusData(currentRouteId, false);
+                    }
+                });
             }
 
             // 啟動藥丸切換功能
@@ -659,14 +667,20 @@
             async function loadBusData(routeId, isInitial, scrollToStation = null) {
                 if (isInitial) trackerLoading.style.display = 'flex';
                 try {
+                    // 先取得資料，確保成功後再寫入全域變數
                     const response = await fetch(API_URL, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ query: GQL.QUERY_ROUTE_DETAILS, variables: { routeId } })
                     });
                     const result = await response.json();
-                    if (!result.data || !result.data.route) throw new Error("查無此路線");
                     
+                    // 資料檢查：如果沒有 route 資料，視為錯誤
+                    if (!result.data || !result.data.route) {
+                        throw new Error("查無此路線或資料異常");
+                    }
+                    
+                    // 確認資料有效才更新全域變數
                     currentRouteData = result.data.route;
                     
                     if (isInitial && scrollToStation && currentRouteData.stations) {
@@ -695,11 +709,18 @@
                     trackerLoading.style.display = 'none';
                     errorNotice.classList.add('hidden');
                 } catch (err) {
-                    console.error(err);
+                    console.error("更新失敗:", err);
+                    
+                    // 如果是初始載入失敗，才顯示錯誤畫面並清空列表
                     if (isInitial) {
                         trackerLoading.style.display = 'none';
                         errorNotice.textContent = "無法載入資料，請檢查網路或路線代碼";
                         errorNotice.classList.remove('hidden');
+                        stationListGoContent.innerHTML = '';
+                        stationListBackContent.innerHTML = '';
+                    } else {
+                        // 如果是自動更新失敗，不做任何畫面更動 (鎖定目前資料)
+                        // 可選擇性在 console log 或 toast 提示，這裡保持靜默失敗以免干擾使用者
                     }
                 }
             }
