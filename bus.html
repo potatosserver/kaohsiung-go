@@ -179,7 +179,6 @@
             display: flex;
             flex-direction: column;
             position: relative;
-            
             border-top: 1px solid #cbd5e1;
             border-radius: 24px 24px 0 0;
             box-shadow: 0 -4px 6px -1px rgba(0, 0, 0, 0.1), 0 -2px 4px -1px rgba(0, 0, 0, 0.06);
@@ -199,7 +198,6 @@
             border-bottom: 1px solid #e2e8f0;
             touch-action: none;
             z-index: 20;
-            
             border-radius: 24px 24px 0 0;
         }
         #dragHandle::before {
@@ -276,18 +274,44 @@
             overflow: hidden; 
         }
         
-        .time-pill {
-            min-width: 80px;
+        /* --- Cycler & Pills --- */
+        .pill-container {
+            width: 90px;
             text-align: center;
-            padding: 4px 8px;
+            position: relative;
+            height: 28px;
+            margin-right: 12px;
+            flex-shrink: 0;
+        }
+        .info-cycler {
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+        .cycler-item {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            display: flex; align-items: center; justify-content: center;
             border-radius: 999px;
             font-weight: 700;
             font-size: 0.9em;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.4s ease-in-out, visibility 0.4s ease-in-out;
+            padding: 4px 8px;
         }
+        .cycler-item.active {
+            opacity: 1;
+            visibility: visible;
+        }
+        
         .bg-slate-200 { background-color: #e2e8f0; color: #1e293b; } 
         .bg-red-200 { background-color: #fee2e2; color: #b91c1c; } 
         .bg-green-200 { background-color: #dcfce7; color: #166534; } 
         .bg-blue-200 { background-color: #dbeafe; color: #1e40af; }
+        /* Plate Style */
+        .bg-yellow-200 { background-color: #fef08a; color: #854d0e; }
 
         /* List Marquee */
         .list-marquee-container {
@@ -374,10 +398,11 @@
             #updateCountdown { background-color: #334155; color: #e2e8f0; border-color: #475569; }
             .btn-active { background-color: #3b82f6; color: #e2e8f0; }
             .btn-inactive { color: #3b82f6; border-color: #3b82f6; background-color: rgba(30, 41, 59, 0.5); }
-            .time-pill.bg-slate-200 { background-color: #334155; color: #cbd5e1; }
-            .time-pill.bg-red-200 { background-color: #991b1b; color: #fecaca; }
-            .time-pill.bg-green-200 { background-color: #166534; color: #dcfce7; }
-            .time-pill.bg-blue-200 { background-color: #1e40af; color: #dbeafe; }
+            .bg-slate-200 { background-color: #334155; color: #cbd5e1; }
+            .bg-red-200 { background-color: #991b1b; color: #fecaca; }
+            .bg-green-200 { background-color: #166534; color: #dcfce7; }
+            .bg-blue-200 { background-color: #1e40af; color: #dbeafe; }
+            .bg-yellow-200 { background-color: #854d0e; color: #fef08a; }
         }
 
         /* --- Landscape Fix (Computer Mode) --- */
@@ -503,8 +528,9 @@
             let currentRouteData = null;
             let isAnimatingDirection = false;
             let isFirstMapLoad = true;
-            let updateInterval = 30; // Changed to 30s
+            let updateInterval = 30; 
             let stationMarkers = {};
+            let cyclerInterval = null;
 
             const GQL = {
                 QUERY_ROUTE_DETAILS: `
@@ -609,6 +635,27 @@
                 }, { passive: true });
             }
 
+            // 啟動藥丸切換功能
+            function startInfoCycler() {
+                if (cyclerInterval) clearInterval(cyclerInterval);
+                cyclerInterval = setInterval(() => {
+                    document.querySelectorAll('.info-cycler').forEach(cycler => {
+                        const items = Array.from(cycler.querySelectorAll('.cycler-item')).filter(it => it.style.display !== 'none');
+                        if (items.length < 2) return;
+                        
+                        let currentIndex = items.findIndex(item => item.classList.contains('active'));
+                        if (currentIndex !== -1) {
+                            items[currentIndex].classList.remove('active');
+                            const nextIndex = (currentIndex + 1) % items.length;
+                            items[nextIndex].classList.add('active');
+                        } else {
+                            // Fallback
+                            items[0].classList.add('active');
+                        }
+                    });
+                }, 3000); // 每 3 秒切換
+            }
+
             async function loadBusData(routeId, isInitial, scrollToStation = null) {
                 if (isInitial) trackerLoading.style.display = 'flex';
                 try {
@@ -637,8 +684,9 @@
                     renderList(2, stationListBackContent);
                     renderMap(currentRouteData);
                     updateDirectionUI();
-                    
                     updateHeaderInfo();
+
+                    startInfoCycler(); // 資料載入後啟動切換動畫
 
                     if (isInitial && scrollToStation) {
                         setTimeout(() => scrollToTargetStation(scrollToStation), 500);
@@ -736,6 +784,24 @@
                     return; 
                 }
                 
+                // --- 邏輯：計算每個站點顯示的車牌 (一台車只顯示在最近的一站) ---
+                const nearestStopForBus = new Map(); // Map<BusId, {stationId, etaTime}>
+                currentRouteData.estimateTimes.edges.forEach(e => {
+                    if (e.node.goBack === direction && e.node.etas && e.node.etas.length > 0) {
+                        const eta = e.node.etas[0]; // 取第一台車
+                        if (eta.etaTime !== null) {
+                            if (!nearestStopForBus.has(eta.busId) || eta.etaTime < nearestStopForBus.get(eta.busId).etaTime) {
+                                nearestStopForBus.set(eta.busId, { stationId: e.node.id, etaTime: eta.etaTime });
+                            }
+                        }
+                    }
+                });
+                // 將 Map 轉為方便查詢的格式： Map<StationId, BusId>
+                const plateVisibleStations = new Map();
+                for (const [busId, info] of nearestStopForBus.entries()) {
+                    plateVisibleStations.set(info.stationId, busId);
+                }
+
                 const existingCards = Array.from(container.children);
                 const cardsById = new Map(existingCards.map(c => [c.dataset.stationId, c]));
 
@@ -743,28 +809,38 @@
                     const stationId = st.node.id;
                     const estimate = estimates.get(stationId);
                     const status = getStatus(estimate);
+                    
+                    // 檢查此站是否應該顯示車牌 (來自上方計算的結果)
+                    const shouldShowPlate = plateVisibleStations.has(stationId);
+                    const plateText = shouldShowPlate ? plateVisibleStations.get(stationId) : '';
+
                     let card = cardsById.get(stationId);
 
                     if (card) {
                         // UPDATE EXISTING
-                        const pill = card.querySelector('.time-pill');
-                        if (pill.textContent !== status.text) {
-                            pill.className = `time-pill ${status.colorClass}`;
-                            pill.textContent = status.text;
-                        } else if (!pill.classList.contains(status.colorClass.split(' ')[0])) {
-                             pill.className = `time-pill ${status.colorClass}`;
+                        const timePill = card.querySelector('.time-item');
+                        const platePill = card.querySelector('.plate-item');
+
+                        // 更新時間 Pill 的文字與顏色
+                        if (timePill.textContent !== status.text) {
+                             timePill.textContent = status.text;
                         }
+                        // 移除舊顏色，加入新顏色 (保留 cycler-item 和 active)
+                        const oldClasses = Array.from(timePill.classList).filter(c => c.startsWith('bg-') || c === 'text-white' || c === 'text-slate-800' || c.startsWith('text-'));
+                        // 簡單暴力重設 class，保留必要 class
+                        timePill.className = `time-item cycler-item ${timePill.classList.contains('active') ? 'active' : ''} ${status.colorClass}`;
                         
-                        let plateSpan = card.querySelector('.plate-number');
-                        if (status.plate) {
-                            if (!plateSpan) {
-                                const plateHtml = `<span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded ml-2 flex-shrink-0 plate-number">${status.plate}</span>`;
-                                card.querySelector('.station-content > div').insertAdjacentHTML('beforeend', plateHtml);
-                            } else if (plateSpan.textContent !== status.plate) {
-                                plateSpan.textContent = status.plate;
+                        // 更新車牌 Pill
+                        if (plateText) {
+                            platePill.textContent = plateText;
+                            platePill.style.display = 'flex';
+                        } else {
+                            platePill.style.display = 'none';
+                            // 如果目前顯示的是車牌但現在沒車牌了，強制切回時間
+                            if (platePill.classList.contains('active')) {
+                                platePill.classList.remove('active');
+                                timePill.classList.add('active');
                             }
-                        } else if (plateSpan) {
-                            plateSpan.remove();
                         }
 
                         if (container.children[index] !== card) {
@@ -788,15 +864,19 @@
                             </div>
                             <div class="station-content">
                                 <div class="flex items-center w-full overflow-hidden">
-                                    <div class="w-24 text-center mr-3 flex-shrink-0">
-                                        <div class="time-pill ${status.colorClass}">${status.text}</div>
+                                    <div class="pill-container">
+                                        <div class="info-cycler">
+                                            <div class="time-item cycler-item active ${status.colorClass}">${status.text}</div>
+                                            <div class="plate-item cycler-item bg-yellow-200 text-yellow-800" style="${plateText ? 'display:flex' : 'display:none'}">
+                                                ${plateText}
+                                            </div>
+                                        </div>
                                     </div>
                                     <div class="flex-1 min-w-0 overflow-hidden">
                                         <div class="list-marquee-container">
                                             <span class="list-marquee-text font-medium text-slate-800 dark:text-slate-200">${st.node.name}</span>
                                         </div>
                                     </div>
-                                    ${status.plate ? `<span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded ml-2 flex-shrink-0 plate-number">${status.plate}</span>` : ''}
                                 </div>
                             </div>`;
                         
@@ -824,19 +904,15 @@
                 // 2. 優先判斷即時動態 (etas)
                 if (estimate.etas && estimate.etas.length > 0) {
                     const eta = estimate.etas[0];
-                    
                     // 確保 etaTime 有數值且不是 null
                     if (eta.etaTime !== null && eta.etaTime !== undefined) {
                         if (eta.etaTime < 1) {
-                            // 小於 1 分鐘 -> 進站中 (紅色)
                             return { text: '進站中', colorClass: 'bg-red-200', plate: eta.busId };
                         } 
                         else if (eta.etaTime === 1) {
-                            // 等於 1 分鐘 -> 即將抵達 (綠色)
                             return { text: '即將抵達', colorClass: 'bg-green-200', plate: eta.busId };
                         } 
                         else {
-                            // 大於 1 分鐘 -> 顯示分鐘數 (藍色)
                             return { text: `${eta.etaTime} 分`, colorClass: 'bg-blue-200', plate: eta.busId };
                         }
                     }
