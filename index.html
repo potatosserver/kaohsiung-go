@@ -233,7 +233,14 @@
             loading.style.opacity = '0';
             loading.classList.remove('visible');
             setTimeout(() => loading.remove(), 500);
-            if ('serviceWorker' in navigator) navigator.serviceWorker.register('./service-worker.js').catch(err => console.error('SW reg failed:', err));
+
+            // === PWA 註冊判斷 (App 環境不註冊) ===
+            const isApp = typeof window.ReactNativeWebView !== 'undefined';
+            if (!isApp && 'serviceWorker' in navigator) {
+                navigator.serviceWorker.register('./service-worker.js').catch(err => {
+                    console.log('PWA 註冊跳過 (可能是 file: 協議或 App 模式)');
+                });
+            }
         };
 
         function updateLoading(txt, current, total) {
@@ -371,7 +378,21 @@
             STATE.lrtCluster = L.markerClusterGroup({ ...o, iconCreateFunction: cf('marker-cluster-lrt') });
         }
 
+        // === 智慧連線函式：App 直連 / Web 代理 ===
         const fetchWithProxy = async (url) => {
+            // 判斷是否為 App 環境
+            const isApp = typeof window.ReactNativeWebView !== 'undefined';
+
+            if (isApp) {
+                try {
+                    const res = await fetch(url);
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    return await res.json();
+                } catch (e) {
+                    console.warn(`[App] 直連失敗 (${url})，將嘗試使用代理伺服器...`, e);
+                }
+            }
+
             const target = encodeURIComponent(url);
             const TIMEOUT_MS = 4000;
             const doFetch = async (proxyBase) => {
@@ -400,7 +421,7 @@
         async function fetchGraphQL(q) { try { const r = await fetch(CONFIG.IBUS_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query:q }) }); if (!r.ok) throw new Error(`HTTP ${r.status}`); return await r.json(); } catch (e) { throw e; } }
         async function fetchBusStationsGodMode() { const u = new Map(); try { const lq=`query { routes(lang: "zh") { edges { node { id name } } } }`; const ld=await fetchGraphQL(lq); const ar=ld.data.routes.edges; const bqb=ar.map(e=>`r_${e.node.id}: route(xno: ${e.node.id}, lang: "zh") { stations { edges { node { id name lat lon } } } }`).join('\n'); const gq=`query{${bqb}}`; const rs=await fetchGraphQL(gq); if (rs.errors) throw new Error("GQL Error"); if (rs.data) Object.values(rs.data).forEach(rd=>{ if(rd&&rd.stations)rd.stations.edges.forEach(e=>{ const s=e.node; if(!u.has(s.id)&&s.lat&&s.lon)u.set(s.id,{id:s.id,name:s.name,lat:s.lat,lon:s.lon}); }); }); return Array.from(u.values()); } catch (e) { throw e; } }
         
-        // === 修改後的資料讀取函式 (支援離線快取) ===
+        // === 離線資料讀取與更新 (支援 LocalStorage) ===
         
         async function loadBusData() {
             try {
