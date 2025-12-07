@@ -189,14 +189,11 @@
             initialLocate(!hasTargetParam);
             startContinuousGeolocation();
             
-            // --- ✨✨✨ 修復轉向問題的代碼位置 ✨✨✨ ---
             window.addEventListener('resize', () => {
                 const sb = document.getElementById('sidebar');
                 if (window.innerWidth > window.innerHeight) {
-                    // 切換到橫向時，移除由 JS 設定的 inline height，讓 CSS 的 height: calc(100% - 24px) 生效
                     sb.style.removeProperty('height');
                 } else {
-                    // 切換回直向時，若側邊欄是開啟狀態但沒有高度，恢復預設高度
                     if (sb.classList.contains('active') && !sb.style.height) {
                         sb.style.height = '60vh';
                     }
@@ -259,15 +256,8 @@
             m.classList.add('hidden'); 
             const rn=document.getElementById('nav-route-name').innerText;
             t.innerText=`${rn} 路線動態`;
-        
-            // --- 修改重點開始 ---
-            // 1. 第一個參數 (route) 前面必須是用 ?
             let u=`${CONFIG.TRACKER_BASE}?route=${STATE.pendingRouteId}`;
-            
-            // 2. 第二個參數 (station) 前面必須是用 &
             if(STATE.pendingStationId) u+=`&station=${STATE.pendingStationId}`;
-            // --- 修改重點結束 ---
-        
             i.src=u;
             im.classList.remove('hidden');
             history.replaceState({modal:'iframe'},'');
@@ -408,10 +398,95 @@
         };
 
         async function fetchGraphQL(q) { try { const r = await fetch(CONFIG.IBUS_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query:q }) }); if (!r.ok) throw new Error(`HTTP ${r.status}`); return await r.json(); } catch (e) { throw e; } }
-        async function fetchBusStationsGodMode() { const u = new Map(); try { const lq=`query { routes(lang: "zh") { edges { node { id name } } } }`; const ld=await fetchGraphQL(lq); const ar=ld.data.routes.edges; const bqb=ar.map(e=>`r_${e.node.id}: route(xno: ${e.node.id}, lang: "zh") { stations { edges { node { id name lat lon } } } }`).join('\n'); const gq=`query{${bqb}}`; const rs=await fetchGraphQL(gq); if (rs.errors) throw new Error("GQL Error"); if (rs.data) Object.values(rs.data).forEach(rd=>{ if(rd&&rd.stations)rd.stations.edges.forEach(e=>{ const s=e.node; if(!u.has(s.id)&&s.lat&&s.lon)u.set(s.id,{id:s.id,name:s.name,lat:s.lat,lon:s.lon}); }); }); return Array.from(u.values()); } catch (e) { updateLoading("💥 公車資料載入失敗"); return []; } }
-        async function loadBusData() { if(STATE.dataBus.length > 0) return; STATE.dataBus = await fetchBusStationsGodMode(); }
-        async function loadBikeData() { if(STATE.dataBike.length > 0) return; try { const res = await fetch(CONFIG.UBIKE_LIST); const data = await res.json(); STATE.dataBike = data.filter(s => { s.lat = parseFloat(s.lat); s.lng = parseFloat(s.lng); return !isNaN(s.lat) && !isNaN(s.lng) && s.lat > 22.4 && s.lng > 120.1; }); } catch (e) { updateLoading("💥 YouBike資料載入失敗", null, null); } }
-        async function loadMetroLrtData() { if (STATE.dataMetro.length > 0) return; try { const [metro, lrt] = await Promise.all([fetchWithProxy(CONFIG.METRO_STATIONS), fetchWithProxy(CONFIG.LRT_STATIONS)]); const all = []; (metro??[]).forEach(s => { const lon = s.position?.lng ?? s.position?.lon; if (s.id && lon) all.push({ id: s.id, name: s.name, lat: s.position.lat, lon: lon }); }); (lrt??[]).forEach(s => { if (s.id && s.position?.lng) all.push({ id: s.id, name: s.name, lat: s.position.lat, lon: s.position.lng }); }); STATE.dataMetro = all; } catch (e) { updateLoading("💥 捷運輕軌資料載入失敗", null, null); } }
+        async function fetchBusStationsGodMode() { const u = new Map(); try { const lq=`query { routes(lang: "zh") { edges { node { id name } } } }`; const ld=await fetchGraphQL(lq); const ar=ld.data.routes.edges; const bqb=ar.map(e=>`r_${e.node.id}: route(xno: ${e.node.id}, lang: "zh") { stations { edges { node { id name lat lon } } } }`).join('\n'); const gq=`query{${bqb}}`; const rs=await fetchGraphQL(gq); if (rs.errors) throw new Error("GQL Error"); if (rs.data) Object.values(rs.data).forEach(rd=>{ if(rd&&rd.stations)rd.stations.edges.forEach(e=>{ const s=e.node; if(!u.has(s.id)&&s.lat&&s.lon)u.set(s.id,{id:s.id,name:s.name,lat:s.lat,lon:s.lon}); }); }); return Array.from(u.values()); } catch (e) { throw e; } }
+        
+        // === 修改後的資料讀取函式 (支援離線快取) ===
+        
+        async function loadBusData() {
+            try {
+                const cached = localStorage.getItem('OFFLINE_BUS');
+                if (cached) {
+                    STATE.dataBus = JSON.parse(cached);
+                    console.log('已載入公車離線資料');
+                }
+            } catch (e) { console.warn('讀取公車快取失敗', e); }
+
+            try {
+                const data = await fetchBusStationsGodMode();
+                if (data && data.length > 0) {
+                    STATE.dataBus = data;
+                    localStorage.setItem('OFFLINE_BUS', JSON.stringify(data));
+                    console.log('公車資料已更新並快取');
+                }
+            } catch (e) {
+                if (STATE.dataBus.length === 0) updateLoading("💥 公車資料載入失敗 (無網路且無快取)");
+                else console.log('使用離線資料模式');
+            }
+        }
+
+        async function loadBikeData() {
+            try {
+                const cached = localStorage.getItem('OFFLINE_BIKE');
+                if (cached) {
+                    STATE.dataBike = JSON.parse(cached);
+                    console.log('已載入 YouBike 離線資料');
+                }
+            } catch (e) { console.warn('讀取 YouBike 快取失敗', e); }
+
+            try {
+                const res = await fetch(CONFIG.UBIKE_LIST);
+                const data = await res.json();
+                const validData = data.filter(s => { 
+                    s.lat = parseFloat(s.lat); 
+                    s.lng = parseFloat(s.lng); 
+                    return !isNaN(s.lat) && !isNaN(s.lng) && s.lat > 22.4 && s.lng > 120.1; 
+                });
+                
+                if (validData.length > 0) {
+                    STATE.dataBike = validData;
+                    localStorage.setItem('OFFLINE_BIKE', JSON.stringify(validData));
+                    console.log('YouBike 資料已更新並快取');
+                }
+            } catch (e) {
+                if (STATE.dataBike.length === 0) updateLoading("💥 YouBike資料載入失敗 (無網路且無快取)");
+                else console.log('使用離線資料模式');
+            }
+        }
+
+        async function loadMetroLrtData() {
+            try {
+                const cached = localStorage.getItem('OFFLINE_METRO');
+                if (cached) {
+                    STATE.dataMetro = JSON.parse(cached);
+                    console.log('已載入捷運輕軌離線資料');
+                }
+            } catch (e) { console.warn('讀取捷運快取失敗', e); }
+
+            try {
+                const [metro, lrt] = await Promise.all([
+                    fetchWithProxy(CONFIG.METRO_STATIONS), 
+                    fetchWithProxy(CONFIG.LRT_STATIONS)
+                ]);
+                
+                const all = [];
+                (metro??[]).forEach(s => { 
+                    const lon = s.position?.lng ?? s.position?.lon; 
+                    if (s.id && lon) all.push({ id: s.id, name: s.name, lat: s.position.lat, lon: lon }); 
+                });
+                (lrt??[]).forEach(s => { 
+                    if (s.id && s.position?.lng) all.push({ id: s.id, name: s.name, lat: s.position.lat, lon: s.position.lng }); 
+                });
+                
+                if (all.length > 0) {
+                    STATE.dataMetro = all;
+                    localStorage.setItem('OFFLINE_METRO', JSON.stringify(all));
+                    console.log('捷運資料已更新並快取');
+                }
+            } catch (e) {
+                if (STATE.dataMetro.length === 0) updateLoading("💥 捷運輕軌資料載入失敗 (無網路且無快取)");
+                else console.log('使用離線資料模式');
+            }
+        }
         
         function getVisualPosition(lat, lon) {
             lat = parseFloat(lat); lon = parseFloat(lon); if (isNaN(lat) || isNaN(lon)) return null;
