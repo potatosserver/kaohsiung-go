@@ -166,6 +166,50 @@
             LRT_LIVE: 'https://traffic.tbkc.gov.tw/api/lrts/live-boards?language=zh-TW' 
         };
 
+        // ============================================================
+        //  IndexedDB 極簡封裝 (解決 LocalStorage 5MB 限制問題)
+        // ============================================================
+        const SimpleDB = {
+            dbName: 'KHH_Traffic_DB',
+            version: 1,
+            storeName: 'offline_data',
+            db: null,
+            async open() {
+                if (this.db) return this.db;
+                return new Promise((resolve, reject) => {
+                    const request = indexedDB.open(this.dbName, this.version);
+                    request.onupgradeneeded = (e) => {
+                        const db = e.target.result;
+                        if (!db.objectStoreNames.contains(this.storeName)) {
+                            db.createObjectStore(this.storeName);
+                        }
+                    };
+                    request.onsuccess = (e) => { this.db = e.target.result; resolve(this.db); };
+                    request.onerror = (e) => reject(e);
+                });
+            },
+            async get(key) {
+                await this.open();
+                return new Promise((resolve, reject) => {
+                    const tx = this.db.transaction(this.storeName, 'readonly');
+                    const store = tx.objectStore(this.storeName);
+                    const request = store.get(key);
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+            },
+            async set(key, value) {
+                await this.open();
+                return new Promise((resolve, reject) => {
+                    const tx = this.db.transaction(this.storeName, 'readwrite');
+                    const store = tx.objectStore(this.storeName);
+                    const request = store.put(value, key); 
+                    request.onsuccess = () => resolve();
+                    request.onerror = () => reject(request.error);
+                });
+            }
+        };
+
         const STATE = { 
             map: null, 
             busCluster: null, bikeCluster: null, metroRCluster: null, metroOCluster: null, lrtCluster: null, 
@@ -234,7 +278,6 @@
             loading.classList.remove('visible');
             setTimeout(() => loading.remove(), 500);
 
-            // === PWA 註冊判斷 (App 環境不註冊) ===
             const isApp = typeof window.ReactNativeWebView !== 'undefined';
             if (!isApp && 'serviceWorker' in navigator) {
                 navigator.serviceWorker.register('./service-worker.js').catch(err => {
@@ -378,11 +421,8 @@
             STATE.lrtCluster = L.markerClusterGroup({ ...o, iconCreateFunction: cf('marker-cluster-lrt') });
         }
 
-        // === 智慧連線函式：App 直連 / Web 代理 ===
         const fetchWithProxy = async (url) => {
-            // 判斷是否為 App 環境
             const isApp = typeof window.ReactNativeWebView !== 'undefined';
-
             if (isApp) {
                 try {
                     const res = await fetch(url);
@@ -394,7 +434,7 @@
             }
 
             const target = encodeURIComponent(url);
-            const TIMEOUT_MS = 4000;
+            const TIMEOUT_MS = 5000;
             const doFetch = async (proxyBase) => {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -412,50 +452,74 @@
             try {
                 return await doFetch(CONFIG.PROXY_URL);
             } catch (e) {
-                console.warn(`主代理失敗 (${e.name}: ${e.message})，切換至第二代理...`);
+                console.warn(`主代理失敗 (${e.name})，切換至第二代理...`);
                 STATE.useSecondaryProxy = true;
                 return await doFetch(CONFIG.PROXY_SEC);
             }
         };
 
-        async function fetchGraphQL(q) { try { const r = await fetch(CONFIG.IBUS_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query:q }) }); if (!r.ok) throw new Error(`HTTP ${r.status}`); return await r.json(); } catch (e) { throw e; } }
+        // 加入 Timeout 機制的 GraphQL 請求
+        async function fetchGraphQL(q) { 
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 6000); 
+            try { 
+                const r = await fetch(CONFIG.IBUS_API, { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' }, 
+                    body: JSON.stringify({ query:q }),
+                    signal: controller.signal 
+                }); 
+                clearTimeout(timeoutId);
+                if (!r.ok) throw new Error(`HTTP ${r.status}`); 
+                return await r.json(); 
+            } catch (e) { 
+                clearTimeout(timeoutId);
+                throw e; 
+            } 
+        }
+
         async function fetchBusStationsGodMode() { const u = new Map(); try { const lq=`query { routes(lang: "zh") { edges { node { id name } } } }`; const ld=await fetchGraphQL(lq); const ar=ld.data.routes.edges; const bqb=ar.map(e=>`r_${e.node.id}: route(xno: ${e.node.id}, lang: "zh") { stations { edges { node { id name lat lon } } } }`).join('\n'); const gq=`query{${bqb}}`; const rs=await fetchGraphQL(gq); if (rs.errors) throw new Error("GQL Error"); if (rs.data) Object.values(rs.data).forEach(rd=>{ if(rd&&rd.stations)rd.stations.edges.forEach(e=>{ const s=e.node; if(!u.has(s.id)&&s.lat&&s.lon)u.set(s.id,{id:s.id,name:s.name,lat:s.lat,lon:s.lon}); }); }); return Array.from(u.values()); } catch (e) { throw e; } }
         
-        // === 離線資料讀取與更新 (支援 LocalStorage) ===
+        // === 資料讀取函式 (使用 SimpleDB + Timeout) ===
         
         async function loadBusData() {
             try {
-                const cached = localStorage.getItem('OFFLINE_BUS');
+                const cached = await SimpleDB.get('OFFLINE_BUS');
                 if (cached) {
-                    STATE.dataBus = JSON.parse(cached);
-                    console.log('已載入公車離線資料');
+                    STATE.dataBus = cached;
+                    console.log(`[DB] 已載入公車離線資料 (${cached.length} 站)`);
                 }
-            } catch (e) { console.warn('讀取公車快取失敗', e); }
+            } catch (e) { console.warn('讀取公車 DB 失敗', e); }
 
             try {
                 const data = await fetchBusStationsGodMode();
                 if (data && data.length > 0) {
                     STATE.dataBus = data;
-                    localStorage.setItem('OFFLINE_BUS', JSON.stringify(data));
-                    console.log('公車資料已更新並快取');
+                    await SimpleDB.set('OFFLINE_BUS', data);
+                    console.log('[DB] 公車資料已更新並寫入 IndexedDB');
                 }
             } catch (e) {
                 if (STATE.dataBus.length === 0) updateLoading("💥 公車資料載入失敗 (無網路且無快取)");
-                else console.log('使用離線資料模式');
+                else console.log('使用離線資料模式 (Bus)');
             }
         }
 
         async function loadBikeData() {
             try {
-                const cached = localStorage.getItem('OFFLINE_BIKE');
+                const cached = await SimpleDB.get('OFFLINE_BIKE');
                 if (cached) {
-                    STATE.dataBike = JSON.parse(cached);
-                    console.log('已載入 YouBike 離線資料');
+                    STATE.dataBike = cached;
+                    console.log(`[DB] 已載入 YouBike 離線資料`);
                 }
-            } catch (e) { console.warn('讀取 YouBike 快取失敗', e); }
+            } catch (e) { console.warn('讀取 YouBike DB 失敗', e); }
 
             try {
-                const res = await fetch(CONFIG.UBIKE_LIST);
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 5000);
+                
+                const res = await fetch(CONFIG.UBIKE_LIST, { signal: controller.signal });
+                clearTimeout(timeoutId);
+                
                 const data = await res.json();
                 const validData = data.filter(s => { 
                     s.lat = parseFloat(s.lat); 
@@ -465,23 +529,23 @@
                 
                 if (validData.length > 0) {
                     STATE.dataBike = validData;
-                    localStorage.setItem('OFFLINE_BIKE', JSON.stringify(validData));
-                    console.log('YouBike 資料已更新並快取');
+                    await SimpleDB.set('OFFLINE_BIKE', validData);
+                    console.log('[DB] YouBike 資料已更新');
                 }
             } catch (e) {
                 if (STATE.dataBike.length === 0) updateLoading("💥 YouBike資料載入失敗 (無網路且無快取)");
-                else console.log('使用離線資料模式');
+                else console.log('使用離線資料模式 (Bike)');
             }
         }
 
         async function loadMetroLrtData() {
             try {
-                const cached = localStorage.getItem('OFFLINE_METRO');
+                const cached = await SimpleDB.get('OFFLINE_METRO');
                 if (cached) {
-                    STATE.dataMetro = JSON.parse(cached);
-                    console.log('已載入捷運輕軌離線資料');
+                    STATE.dataMetro = cached;
+                    console.log(`[DB] 已載入捷運輕軌離線資料`);
                 }
-            } catch (e) { console.warn('讀取捷運快取失敗', e); }
+            } catch (e) { console.warn('讀取捷運 DB 失敗', e); }
 
             try {
                 const [metro, lrt] = await Promise.all([
@@ -500,12 +564,12 @@
                 
                 if (all.length > 0) {
                     STATE.dataMetro = all;
-                    localStorage.setItem('OFFLINE_METRO', JSON.stringify(all));
-                    console.log('捷運資料已更新並快取');
+                    await SimpleDB.set('OFFLINE_METRO', all);
+                    console.log('[DB] 捷運資料已更新');
                 }
             } catch (e) {
                 if (STATE.dataMetro.length === 0) updateLoading("💥 捷運輕軌資料載入失敗 (無網路且無快取)");
-                else console.log('使用離線資料模式');
+                else console.log('使用離線資料模式 (Metro)');
             }
         }
         
