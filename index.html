@@ -210,7 +210,7 @@
             try {
                 // 強制註冊 SW，確保 CDN 能被快取 (不論是 Web 或 App)
                 if ('serviceWorker' in navigator) {
-                    navigator.serviceWorker.register('./sw.js')
+                    navigator.serviceWorker.register('./service-worker.js')
                         .then(reg => console.log('Service Worker 註冊成功'))
                         .catch(err => console.error('Service Worker 註冊失敗', err));
                 }
