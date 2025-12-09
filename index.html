@@ -166,9 +166,6 @@
             LRT_LIVE: 'https://traffic.tbkc.gov.tw/api/lrts/live-boards?language=zh-TW' 
         };
 
-        // ============================================================
-        //  IndexedDB 極簡封裝 (解決 LocalStorage 5MB 限制問題)
-        // ============================================================
         const SimpleDB = {
             dbName: 'KHH_Traffic_DB',
             version: 1,
@@ -217,7 +214,7 @@
             currentContext: null, pendingRouteId: null, pendingStationId: null, autoRefreshTimer: null, 
             userMarker: null, userAccuracy: null, geoWatcherId: null, metroLrtLiveCache: null, metroLrtLiveCacheTime: 0, 
             settings: {}, markersCreated: { bus: false, bike: false, metro: false }, anchors: [],
-            useSecondaryProxy: false 
+            useSecondaryProxy: false, cancelLocateMove: false
         };
         const LOCATE_ICON_ELEMENT = document.querySelector('#search-box button:last-child span');
         const DEFAULT_SETTINGS = { bus: true, bike: true, metroR: true, metroO: true, lrt: true };
@@ -354,15 +351,66 @@
         function updateUserLocation(pos) { const { latitude, longitude, accuracy } = pos.coords; if (STATE.userAccuracy) STATE.map.removeLayer(STATE.userAccuracy); if (STATE.userMarker) STATE.map.removeLayer(STATE.userMarker); STATE.userAccuracy = L.circle([latitude, longitude], { radius: accuracy, color: '#3b82f6', fillOpacity: 0.1, weight: 1, interactive: false }).addTo(STATE.map); STATE.userMarker = L.marker([latitude, longitude], { icon: L.divIcon({ className: 'bg-blue-600 border-2 border-white rounded-full shadow-lg', iconSize: [14, 14] }) }).addTo(STATE.map); }
         function startContinuousGeolocation() { if (!navigator.geolocation || STATE.geoWatcherId) return; LOCATE_ICON_ELEMENT.innerText = 'gps_fixed'; const s = (pos) => { updateUserLocation(pos); }; const e = (err) => { LOCATE_ICON_ELEMENT.innerText = 'my_location'; if(STATE.geoWatcherId) { navigator.geolocation.clearWatch(STATE.geoWatcherId); STATE.geoWatcherId = null; } }; STATE.geoWatcherId = navigator.geolocation.watchPosition( s, e, { timeout: 15000, enableHighAccuracy: true, maximumAge: 0 } ); }
         
+        // --- 核心修改：計算側邊欄偏移後的中心點 (不改變 Zoom) ---
+        function calculateOffsetCenter(latlng) {
+            const sb = document.getElementById('sidebar');
+            // 如果側邊欄沒開，直接返回原座標
+            if (!sb.classList.contains('active')) {
+                return latlng;
+            }
+
+            const currentZoom = STATE.map.getZoom();
+            const targetPoint = STATE.map.project(latlng, currentZoom);
+            
+            const isLandscape = window.innerWidth > window.innerHeight;
+            let panByX = 0, panByY = 0;
+            
+            if (isLandscape) { 
+                panByX = -196; // 橫向模式：側邊欄在左，地圖需向右移 (X負值)
+            } else { 
+                // 直向模式：計算視窗中心與剩餘地圖區域中心的差距
+                const sr = document.querySelector('.search-container').getBoundingClientRect();
+                const vmh = window.innerHeight * 0.4; // 側邊欄佔 60%，地圖剩 40%
+                const vmcy = sr.bottom + (vmh - sr.bottom) / 2; // 可視區域的中心 Y
+                panByY = (window.innerHeight / 2) - vmcy; // 需要移動的 Y 距離
+            }
+
+            const newCenterPoint = targetPoint.add(L.point(panByX, panByY));
+            return STATE.map.unproject(newCenterPoint, currentZoom);
+        }
+
+        // --- 核心修改：定位功能 (含防中斷與偏移計算) ---
         function locateUser() {
             if (!navigator.geolocation) return showToast('瀏覽器不支援定位', 'error');
+            
+            STATE.cancelLocateMove = false; // 重置中斷旗標
             LOCATE_ICON_ELEMENT.classList.add('spin-anim');
-            if (STATE.userMarker) STATE.map.flyTo(STATE.userMarker.getLatLng(), 18, { animate: true, duration: 0.8 });
+
+            // 1. 如果有上次位置，先移動過去 (使用 offset 邏輯，但強制 zoom 18)
+            if (STATE.userMarker) {
+                const target = calculateOffsetCenter(STATE.userMarker.getLatLng());
+                // 定位時允許改變 Zoom 到 18
+                STATE.map.flyTo(target, 18, { animate: true, duration: 0.8 });
+            }
+
+            // 2. 取得最新位置
             navigator.geolocation.getCurrentPosition((pos) => {
                 updateUserLocation(pos);
-                STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 18, { animate: true, duration: 0.8 });
                 LOCATE_ICON_ELEMENT.classList.remove('spin-anim');
-                showToast('已重新定位到您的目前位置', 'success');
+                
+                // 3. 檢查是否被中斷 (使用者在等待期間有無操作)
+                if (!STATE.cancelLocateMove) {
+                    const latlng = L.latLng(pos.coords.latitude, pos.coords.longitude);
+                    // 計算考慮側邊欄的中心點
+                    const adjustedCenter = calculateOffsetCenter(latlng);
+                    // 移動地圖
+                    STATE.map.flyTo(adjustedCenter, 18, { animate: true, duration: 0.8 });
+                    showToast('已重新定位到您的目前位置', 'success');
+                } else {
+                    // 如果被中斷，只更新藍點，不移動地圖
+                    showToast('已更新位置', 'success');
+                }
+
                 if (!STATE.geoWatcherId) startContinuousGeolocation();
             }, (err) => {
                 LOCATE_ICON_ELEMENT.classList.remove('spin-anim');
@@ -411,7 +459,14 @@
         function initMap() {
             STATE.map = L.map('map', { zoomControl: false }).setView([22.631442, 120.301890], 13);
             L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(STATE.map);
-            STATE.map.on('click', () => { if (document.getElementById('sidebar').classList.contains('active')) history.back(); });
+            
+            // 地圖互動事件監聽 (用於中斷定位移動)
+            STATE.map.on('click', () => { 
+                if (document.getElementById('sidebar').classList.contains('active')) history.back();
+            });
+            // 當使用者拖曳地圖時，標記為「已中斷」，定位完成後就不會再強制移動地圖
+            STATE.map.on('dragstart', () => { STATE.cancelLocateMove = true; });
+            
             const o = { showCoverageOnHover: false, maxClusterRadius: 80, disableClusteringAtZoom: 16, spiderfyOnMaxZoom: false };
             const cf = (cn) => (c) => L.divIcon({ html: `<div>${c.getChildCount()}</div>`, className: `marker-cluster ${cn}`, iconSize: [40, 40] });
             STATE.busCluster = L.markerClusterGroup({ ...o, iconCreateFunction: cf('marker-cluster-bus') });
@@ -429,11 +484,15 @@
                     if (!res.ok) throw new Error(`HTTP ${res.status}`);
                     return await res.json();
                 } catch (e) {
-                    console.warn(`[App] 直連失敗 (${url})，將嘗試使用代理伺服器...`, e);
+                    console.warn(`[App] 直連失敗，切換代理...`);
                 }
             }
 
-            const target = encodeURIComponent(url);
+            // *** 防快取機制 ***
+            const separator = url.includes('?') ? '&' : '?';
+            const urlWithNoCache = `${url}${separator}_t=${Date.now()}`;
+            const target = encodeURIComponent(urlWithNoCache);
+            
             const TIMEOUT_MS = 5000;
             const doFetch = async (proxyBase) => {
                 const controller = new AbortController();
@@ -448,6 +507,7 @@
                     throw err;
                 }
             };
+
             if (STATE.useSecondaryProxy) return await doFetch(CONFIG.PROXY_SEC);
             try {
                 return await doFetch(CONFIG.PROXY_URL);
@@ -458,7 +518,6 @@
             }
         };
 
-        // 加入 Timeout 機制的 GraphQL 請求
         async function fetchGraphQL(q) { 
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 6000); 
@@ -480,15 +539,10 @@
 
         async function fetchBusStationsGodMode() { const u = new Map(); try { const lq=`query { routes(lang: "zh") { edges { node { id name } } } }`; const ld=await fetchGraphQL(lq); const ar=ld.data.routes.edges; const bqb=ar.map(e=>`r_${e.node.id}: route(xno: ${e.node.id}, lang: "zh") { stations { edges { node { id name lat lon } } } }`).join('\n'); const gq=`query{${bqb}}`; const rs=await fetchGraphQL(gq); if (rs.errors) throw new Error("GQL Error"); if (rs.data) Object.values(rs.data).forEach(rd=>{ if(rd&&rd.stations)rd.stations.edges.forEach(e=>{ const s=e.node; if(!u.has(s.id)&&s.lat&&s.lon)u.set(s.id,{id:s.id,name:s.name,lat:s.lat,lon:s.lon}); }); }); return Array.from(u.values()); } catch (e) { throw e; } }
         
-        // === 資料讀取函式 (使用 SimpleDB + Timeout) ===
-        
         async function loadBusData() {
             try {
                 const cached = await SimpleDB.get('OFFLINE_BUS');
-                if (cached) {
-                    STATE.dataBus = cached;
-                    console.log(`[DB] 已載入公車離線資料 (${cached.length} 站)`);
-                }
+                if (cached) { STATE.dataBus = cached; }
             } catch (e) { console.warn('讀取公車 DB 失敗', e); }
 
             try {
@@ -496,55 +550,37 @@
                 if (data && data.length > 0) {
                     STATE.dataBus = data;
                     await SimpleDB.set('OFFLINE_BUS', data);
-                    console.log('[DB] 公車資料已更新並寫入 IndexedDB');
                 }
-            } catch (e) {
-                if (STATE.dataBus.length === 0) updateLoading("💥 公車資料載入失敗 (無網路且無快取)");
-                else console.log('使用離線資料模式 (Bus)');
-            }
+            } catch (e) { if (STATE.dataBus.length === 0) updateLoading("💥 公車資料載入失敗"); }
         }
 
         async function loadBikeData() {
             try {
                 const cached = await SimpleDB.get('OFFLINE_BIKE');
-                if (cached) {
-                    STATE.dataBike = cached;
-                    console.log(`[DB] 已載入 YouBike 離線資料`);
-                }
+                if (cached) { STATE.dataBike = cached; }
             } catch (e) { console.warn('讀取 YouBike DB 失敗', e); }
 
             try {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 5000);
-                
                 const res = await fetch(CONFIG.UBIKE_LIST, { signal: controller.signal });
                 clearTimeout(timeoutId);
-                
                 const data = await res.json();
                 const validData = data.filter(s => { 
-                    s.lat = parseFloat(s.lat); 
-                    s.lng = parseFloat(s.lng); 
+                    s.lat = parseFloat(s.lat); s.lng = parseFloat(s.lng); 
                     return !isNaN(s.lat) && !isNaN(s.lng) && s.lat > 22.4 && s.lng > 120.1; 
                 });
-                
                 if (validData.length > 0) {
                     STATE.dataBike = validData;
                     await SimpleDB.set('OFFLINE_BIKE', validData);
-                    console.log('[DB] YouBike 資料已更新');
                 }
-            } catch (e) {
-                if (STATE.dataBike.length === 0) updateLoading("💥 YouBike資料載入失敗 (無網路且無快取)");
-                else console.log('使用離線資料模式 (Bike)');
-            }
+            } catch (e) { if (STATE.dataBike.length === 0) updateLoading("💥 YouBike資料載入失敗"); }
         }
 
         async function loadMetroLrtData() {
             try {
                 const cached = await SimpleDB.get('OFFLINE_METRO');
-                if (cached) {
-                    STATE.dataMetro = cached;
-                    console.log(`[DB] 已載入捷運輕軌離線資料`);
-                }
+                if (cached) { STATE.dataMetro = cached; }
             } catch (e) { console.warn('讀取捷運 DB 失敗', e); }
 
             try {
@@ -552,25 +588,14 @@
                     fetchWithProxy(CONFIG.METRO_STATIONS), 
                     fetchWithProxy(CONFIG.LRT_STATIONS)
                 ]);
-                
                 const all = [];
-                (metro??[]).forEach(s => { 
-                    const lon = s.position?.lng ?? s.position?.lon; 
-                    if (s.id && lon) all.push({ id: s.id, name: s.name, lat: s.position.lat, lon: lon }); 
-                });
-                (lrt??[]).forEach(s => { 
-                    if (s.id && s.position?.lng) all.push({ id: s.id, name: s.name, lat: s.position.lat, lon: s.position.lng }); 
-                });
-                
+                (metro??[]).forEach(s => { const lon = s.position?.lng ?? s.position?.lon; if (s.id && lon) all.push({ id: s.id, name: s.name, lat: s.position.lat, lon: lon }); });
+                (lrt??[]).forEach(s => { if (s.id && s.position?.lng) all.push({ id: s.id, name: s.name, lat: s.position.lat, lon: s.position.lng }); });
                 if (all.length > 0) {
                     STATE.dataMetro = all;
                     await SimpleDB.set('OFFLINE_METRO', all);
-                    console.log('[DB] 捷運資料已更新');
                 }
-            } catch (e) {
-                if (STATE.dataMetro.length === 0) updateLoading("💥 捷運輕軌資料載入失敗 (無網路且無快取)");
-                else console.log('使用離線資料模式 (Metro)');
-            }
+            } catch (e) { if (STATE.dataMetro.length === 0) updateLoading("💥 捷運輕軌資料載入失敗"); }
         }
         
         function getVisualPosition(lat, lon) {
@@ -590,7 +615,11 @@
         function createBikeMarkers() { if (STATE.markersCreated.bike) return; const markers = []; STATE.dataBike.forEach(s => { const pos = getVisualPosition(s.lat, s.lng); if (!pos) return; const marker = L.marker([pos.lat, pos.lon], { icon: L.divIcon({ className: 'custom-icon ubike-icon', html: '<span class="material-icons-round text-lg text-black">pedal_bike</span>', iconSize: [30, 30] }) }); marker.on('click', (e) => { L.DomEvent.stopPropagation(e); handleMarkerClick(marker, 'bike', s); }); STATE.markersMap.bike[s.station_no] = marker; markers.push(marker); }); STATE.bikeCluster.addLayers(markers); STATE.markersCreated.bike = true; }
         function createMetroLrtMarkers() { if (STATE.markersCreated.metro) return; const mR = [], mO = [], mC = []; STATE.dataMetro.forEach(s => { const pos = getVisualPosition(s.lat, s.lon); if (!pos) return; const l = s.id.charAt(0).toUpperCase(); const i = L.divIcon({className:`custom-icon metro-icon line-bg-${l}`, html:`<b>${l}</b>`, iconSize:[30,30]}); const marker = L.marker([pos.lat, pos.lon], {icon: i}); marker.on('click', (e) => { L.DomEvent.stopPropagation(e); handleMarkerClick(marker,'metro',s); }); STATE.markersMap.metro[s.id] = marker; if(l==='R') mR.push(marker); else if(l==='O') mO.push(marker); else if(l==='C') mC.push(marker); }); STATE.metroRCluster.addLayers(mR); STATE.metroOCluster.addLayers(mO); STATE.lrtCluster.addLayers(mC); STATE.markersCreated.metro = true; }
 
-        function handleMarkerClick(marker, type, data) { openSidebar(type, data); }
+        function handleMarkerClick(marker, type, data) { 
+            // 點擊圖釘時視為使用者互動，取消正在進行的定位移動
+            STATE.cancelLocateMove = true; 
+            openSidebar(type, data); 
+        }
 
         function toggleSidebarUI(show) { const sb = document.getElementById('sidebar'); const isLandscape = window.innerWidth > window.innerHeight; if (isLandscape) { sb.classList.toggle('active', show); } else { sb.style.height = show ? '60vh' : '0px'; sb.classList.toggle('active', show); } document.body.classList.toggle('sidebar-open', show); if (!show) { stopAutoRefresh(); STATE.currentContext = null; if(new URLSearchParams(window.location.search).toString() !== '') history.replaceState(null, '', window.location.pathname); } }
         
@@ -628,24 +657,39 @@
         }
         
         async function openSidebar(type, data) {
-            const isLandscape = window.innerWidth > window.innerHeight; 
             const lat = data.lat, lon = data.lon ?? data.lng; 
             const targetLatLng = L.latLng(lat, lon); 
             const newId = type === 'bike' ? data.station_no : data.id; 
-            let panByX = 0, panByY = 0; 
-            if (isLandscape) { panByX = -196; } else { const sr = document.querySelector('.search-container').getBoundingClientRect(); const vmh = window.innerHeight * 0.4; const vmcy = sr.bottom + (vmh - sr.bottom) / 2; panByY = (window.innerHeight/2) - vmcy; } 
-            const currentZoom = STATE.map.getZoom();
-            const targetPoint = STATE.map.project(targetLatLng, currentZoom); 
-            const newCenterPoint = targetPoint.add(L.point(panByX, panByY)); 
-            const newCenterLatLng = STATE.map.unproject(newCenterPoint, currentZoom); 
+
+            // --- 修正重點：點擊圖釘時，預先計算偏移中心，並使用 panTo (不縮放) ---
             const isSameMarker = STATE.currentContext && STATE.currentContext.data && (type === 'bike' ? STATE.currentContext.data.station_no === newId : STATE.currentContext.data.id === newId); 
-            if (isSameMarker) {
-                const currentCenter = STATE.map.getCenter();
-                const dist = currentCenter.distanceTo(newCenterLatLng); 
-                if (dist > 10) STATE.map.panTo(newCenterLatLng, {animate:true, duration:0.8}); 
-                return; 
+            
+            if (!isSameMarker) {
+                // 取得側邊欄開啟後的偏移中心點
+                // 這裡我們模擬側邊欄開啟狀態來計算 (即便它現在還沒開，calculateOffsetCenter 會檢查 class，但我們手動處理邏輯確保準確)
+                
+                // 為了準確計算，我們假設側邊欄開啟後的偏移量
+                const currentZoom = STATE.map.getZoom();
+                const targetPoint = STATE.map.project(targetLatLng, currentZoom);
+                const isLandscape = window.innerWidth > window.innerHeight;
+                let panByX = 0, panByY = 0;
+                
+                if (isLandscape) { 
+                    panByX = -196; 
+                } else { 
+                    const sr = document.querySelector('.search-container').getBoundingClientRect();
+                    const vmh = window.innerHeight * 0.4; 
+                    const vmcy = sr.bottom + (vmh - sr.bottom) / 2;
+                    panByY = (window.innerHeight/2) - vmcy;
+                }
+                
+                const newCenterPoint = targetPoint.add(L.point(panByX, panByY));
+                const newCenterLatLng = STATE.map.unproject(newCenterPoint, currentZoom);
+                
+                // 使用 panTo 確保只移動不縮放
+                STATE.map.panTo(newCenterLatLng, {animate:true, duration:0.8});
             }
-            STATE.map.panTo(newCenterLatLng, {animate:true, duration:0.8}); 
+
             toggleSidebarUI(true);
             STATE.currentContext = { type, data }; const c=document.getElementById('sb-content'),b=document.getElementById('sb-badge'),t=document.getElementById('sb-title'),s=document.getElementById('sb-subtitle'); c.innerHTML=`<div class="animate-pulse space-y-4"><div class="h-24 bg-gray-200 rounded-2xl"></div><div class="h-12 bg-gray-200 rounded-xl"></div></div>`;
             if (type === 'bus') { b.className='inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold mb-2 bg-blue-100 text-blue-700'; b.innerHTML='<span class="material-icons-outlined text-sm mr-1">directions_bus</span> 公車'; t.innerText=data.name; s.innerText=`ID: ${data.id}`; const a=await getBusArrivals(data.id); if(a!==null) renderBusContent(a,c); else refreshData(); } 
@@ -659,7 +703,69 @@
 
         function renderBusContent(d, c) { if (!d) { c.innerHTML = '<div class="p-4 bg-red-50 text-red-600 rounded-lg text-center text-sm">連線失敗</div>'; return; } if (d.length === 0) { c.innerHTML = '<div class="p-8 text-center text-slate-400"><span class="material-icons-outlined text-4xl mb-2">bus_alert</span><p>無營運路線</p></div>'; return; } const sid = STATE.currentContext.data.id; let h = '<div class="space-y-3">'; d.forEach(r => { let th = `<span class="text-gray-400 font-bold text-sm">未發車</span>`, sc = 'bg-white'; if (r.isSuspended) { th = `<span class="text-gray-500 text-sm">末班已過</span>`; } else if (r.etas?.[0]) { const m = r.etas[0].etaTime; if (m === 0) { th = `<span class="text-red-600 font-bold flex items-center justify-end text-sm"><span class="material-icons-round text-sm mr-1 animate-pulse">campaign</span>進站中</span>`; sc = 'bg-red-50'; } else if (m === 1) { th = `<span class="text-red-500 font-bold text-sm">即將到站</span>`; } else { th = `<span class="text-blue-600 font-bold text-lg">${m} <span class="text-xs">分</span></span>`; } } else if (r.comeTime) { th = `<span class="text-slate-600 font-medium text-sm">${r.comeTime}</span>`; } h += `<div onclick="confirmRedirect('${r.id}','${r.name}','${sid}')" class="p-3 rounded-2xl border ${sc} flex items-center justify-between transition bg-white active:scale-95 cursor-pointer"><div class="flex-1 min-w-0 mr-3"><div class="flex items-center gap-2"><span class="text-lg font-bold truncate">${r.name}</span><span class="text-[10px] px-2 py-0.5 bg-gray-100 rounded-full shrink-0">${r.dir}</span></div></div><div class="text-right min-w-[80px]">${th}</div><span class="material-icons-outlined text-slate-300 ml-2">chevron_right</span></div>`; }); c.innerHTML = h + '</div>'; }
         function renderBikeContent(i, c) { if (!i) { c.innerHTML = '<div class="p-4 bg-red-50 text-red-600 rounded-lg text-center">無法取得即時車位</div>'; return; } const {yb2, eyb} = i.available_spaces_detail, emp = i.empty_spaces, t = new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'}); const gnc = (n) => n>3?'text-slate-800':(n>0?'text-orange-600':'text-gray-300'); c.innerHTML = `<div class="space-y-4"><div class="grid grid-cols-2 gap-3"><div class="bg-gradient-to-br from-amber-50 to-amber-100 p-4 rounded-3xl border relative h-28"><div class="z-10"><span class="text-xs font-bold text-amber-700 uppercase">一般車輛</span><div class="flex items-baseline"><span class="text-4xl font-black ${gnc(yb2)}">${yb2}</span><span class="text-xs ml-1">輛</span></div></div><span class="material-icons-round absolute right-0 bottom-0 text-7xl text-amber-400 opacity-20 transform translate-x-1 translate-y-1">pedal_bike</span></div><div class="bg-gradient-to-br from-orange-50 to-orange-100 p-4 rounded-3xl border relative h-28"><div class="z-10"><div class="flex items-center justify-between"><span class="text-xs font-bold text-orange-700 uppercase">電輔車</span><span class="material-icons-round text-xs text-orange-600">bolt</span></div><div class="flex items-baseline"><span class="text-4xl font-black ${gnc(eyb)}">${eyb}</span><span class="text-xs ml-1">輛</span></div></div><span class="material-icons-round absolute right-0 bottom-0 text-7xl text-orange-400 opacity-20 transform translate-x-1 translate-y-1">electric_bike</span></div></div><div class="bg-gradient-to-br from-emerald-50 to-teal-100 p-5 rounded-3xl border flex justify-between items-center relative"><div class="z-10"><div class="text-xs text-emerald-800 font-bold uppercase">可歸還空位</div><div class="font-bold text-lg">停車柱</div></div><div class="text-5xl font-black text-emerald-600 z-10">${emp}</div><span class="material-icons-outlined absolute right-0 top-0 text-8xl text-emerald-500 opacity-10 transform translate-x-1 -translate-y-1">local_parking</span></div><div class="text-center text-xs text-slate-400 mt-2 flex justify-center items-center gap-1"><span class="material-icons-outlined text-sm">schedule</span> 更新於 ${t}</div></div>`; }
-        function renderMetroLrtContent(d, c) { if (!d) { c.innerHTML = '<div class="p-4 bg-red-50 text-red-600 rounded-lg text-center text-sm">無法取得即時到站資訊</div>'; return; } if (d.length === 0) { c.innerHTML = '<div class="p-8 text-center text-slate-400"><span class="material-icons-outlined text-4xl mb-2">tram</span><p>目前無列車動態</p></div>'; return; } let h = '<div class="space-y-3">'; d.forEach(t => { let th = '<span class="text-gray-500 text-sm">已離站</span>', sc = 'bg-white'; const est = t.estimateTime; if (est === 0) { th = `<span class="text-red-600 font-bold inline-flex items-center justify-end text-sm"><span class="material-icons-round text-sm mr-1 animate-pulse">campaign</span>進站中</span>`; sc = 'bg-red-50'; } else if (est === 1) { th = `<span class="text-red-500 font-bold text-sm">即將到站</span>`; } else if (est > 1) { th = `<span class="text-blue-600 font-bold text-lg">${est} <span class="text-xs">分</span></span>`; } const l = t.stationId.charAt(0).toUpperCase(); let lc = '', ln = ''; if (l === 'R') { lc = 'bg-red-100 text-red-700'; ln = '紅線'; } else if (l === 'O') { lc = 'bg-orange-100 text-orange-700'; ln = '橘線'; } else { lc = 'bg-green-100 text-green-700'; ln = '輕軌'; } h += `<div class="p-3 rounded-2xl border ${sc} flex items-center justify-between bg-white"><div class="flex-1 min-w-0 mr-3"><div class="flex items-center gap-2"><span class="text-lg font-bold truncate">${t.tripHeadSign}</span><span class="text-[10px] px-2 py-0.5 ${lc} rounded-full shrink-0">${ln}</span></div></div><div class="text-right min-w-[80px]">${th}</div></div>`; }); c.innerHTML = h + '</div>'; }
+        
+        // 更新：捷運/輕軌渲染邏輯
+        function renderMetroLrtContent(d, c) {
+            if (!d) { c.innerHTML = '<div class="p-4 bg-red-50 text-red-600 rounded-lg text-center text-sm">無法取得即時到站資訊</div>'; return; }
+            if (d.length === 0) { c.innerHTML = '<div class="p-8 text-center text-slate-400"><span class="material-icons-outlined text-4xl mb-2">tram</span><p>目前無列車動態</p></div>'; return; }
+
+            const lines = {};
+            d.forEach(t => {
+                let key = t.lineName;
+                if (!key) { 
+                    const prefix = t.stationId.charAt(0).toUpperCase();
+                    if (prefix === 'R') key = '紅線';
+                    else if (prefix === 'O') key = '橘線';
+                    else key = '輕軌';
+                }
+                if (!lines[key]) lines[key] = [];
+                lines[key].push(t);
+            });
+
+            let h = '<div class="space-y-3">';
+            const now = Date.now();
+
+            Object.keys(lines).forEach(lineKey => {
+                const items = lines[lineKey];
+                // 判斷：該路線「所有站」的原始 estimateTime 是否全部為 0
+                const isAllZero = items.every(t => t.estimateTime === 0);
+
+                items.forEach(t => {
+                    let th = '', sc = 'bg-white';
+                    
+                    if (isAllZero) {
+                        th = `<span class="text-gray-500 text-sm">末班已過</span>`;
+                    } else {
+                        // 時間校正
+                        const timeBase = t.srcUpdateTime ? Date.parse(t.srcUpdateTime) : (t.updateTime ? Date.parse(t.updateTime) : now);
+                        const elapsedRaw = (now - timeBase) / 60000;
+                        const elapsedMins = Math.floor(elapsedRaw); 
+                        const adjTime = t.estimateTime - elapsedMins;
+
+                        if (adjTime < 0) {
+                            th = `<span class="text-gray-500 text-sm">離站中</span>`;
+                        } else if (adjTime === 0) {
+                            th = `<span class="text-red-600 font-bold inline-flex items-center justify-end text-sm"><span class="material-icons-round text-sm mr-1 animate-pulse">campaign</span>進站中</span>`;
+                            sc = 'bg-red-50';
+                        } else if (adjTime === 1) {
+                            th = `<span class="text-red-500 font-bold text-sm">即將到站</span>`;
+                        } else {
+                            th = `<span class="text-blue-600 font-bold text-lg">${adjTime} <span class="text-xs">分</span></span>`;
+                        }
+                    }
+
+                    let lc = '', ln = '';
+                    if (lineKey.includes('紅')) { lc = 'bg-red-100 text-red-700'; ln = '紅線'; }
+                    else if (lineKey.includes('橘')) { lc = 'bg-orange-100 text-orange-700'; ln = '橘線'; }
+                    else { lc = 'bg-green-100 text-green-700'; ln = '輕軌'; }
+
+                    h += `<div class="p-3 rounded-2xl border ${sc} flex items-center justify-between bg-white"><div class="flex-1 min-w-0 mr-3"><div class="flex items-center gap-2"><span class="text-lg font-bold truncate">${t.tripHeadSign}</span><span class="text-[10px] px-2 py-0.5 ${lc} rounded-full shrink-0">${ln}</span></div></div><div class="text-right min-w-[80px]">${th}</div></div>`;
+                });
+            });
+
+            c.innerHTML = h + '</div>';
+        }
+
         async function getBusArrivals(sid){const qr=`query Q($ids:[Int!]!){stations(lang:"zh",ids:$ids){edges{node{... on Station{routes{edges{goBack node{id name}}}}}}}}`; const qt=`query T($t:[EstimateStationInput!]!){stationEstimates(targets:$t){edges{node{comeTime isSuspended etas{etaTime}}}}}`; try{const r1=await fetch(CONFIG.IBUS_API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:qr,variables:{ids:[parseInt(sid,10)]}})});const j1=await r1.json(); const re=j1?.data?.stations?.edges?.[0]?.node?.routes?.edges; if(!re)return[]; const t=re.map(e=>({xno:parseInt(e.node.id,10),goBack:parseInt(e.goBack,10),stationId:parseInt(sid,10)})); const r2=await fetch(CONFIG.IBUS_API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:qt,variables:{t:t}})}); const j2=await r2.json(); const ests=j2.data.stationEstimates.edges; return re.map((e,i)=>({id:e.node.id,name:e.node.name,dir:e.goBack===1?'去程':'返程',...(ests[i]?.node||{})}));}catch(e){return null;}}
         async function getBikeRealtime(id){try{const r=await fetch(CONFIG.UBIKE_REALTIME,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({station_no:[id]})}); const j=await r.json(); return j.retVal?.data?.[0];}catch(e){return null;}}
         async function getMetroLrtArrivals(sid, force=false){const n=Date.now(); if(!force&&STATE.metroLrtLiveCache&&(n-STATE.metroLrtLiveCacheTime<20000)){return STATE.metroLrtLiveCache.filter(v=>v.stationId===sid);} try{const [metro,lrt]=await Promise.all([fetchWithProxy(CONFIG.METRO_LIVE),fetchWithProxy(CONFIG.LRT_LIVE)]); const all=(metro??[]).concat(lrt??[]); STATE.metroLrtLiveCache=all; STATE.metroLrtLiveCacheTime=n; return all.filter(v=>v.stationId===sid);}catch(e){return null;}}
