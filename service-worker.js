@@ -1,96 +1,687 @@
-// Service Worker Version
-// 更新版本號以觸發 activate 事件清除舊快取
-const CACHE_NAME = 'kh-transport-v2';
-
-// 這些資源會被安裝時預先快取
-const STATIC_ASSETS = [
-    './',
-    './index.html',
-    './manifest.json',
-    './icons/icon.ico',
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="author" content="卓稟鈞(AndrewCho)">
+    <meta name="description" content="一個專為高雄市的簡單、美觀且低流量的整合式大眾運輸搜尋器，提供快速查詢公車、捷運、輕軌與 YouBike 資訊功能，滿足即時需求。">
+    <meta name="keywords" content="高雄市公車, 高雄捷運, 高雄輕軌, YouBike, 高雄交通, 即時資訊, 捷運, 輕軌, 公車, 紅線, 橘線, 環狀輕軌, Github, github.io" />
+    <meta property="og:site_name" content="高雄交通智慧地圖" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>高雄交通智慧地圖</title>
     
-    // Leaflet 核心與聚合套件
-    'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
-    'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
-    'https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css',
-    'https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css',
-    'https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js',
+    <!-- Favicon Settings (修正：使用相對路徑 ./) -->
+    <link rel="shortcut icon" href="./icons/icon.ico" type="image/x-icon">
+    <link rel="icon" href="./icons/icon.ico" type="image/x-icon">
     
-    // UI 樣式與字型
-    'https://cdn.tailwindcss.com',
-    'https://fonts.googleapis.com/icon?family=Material+Icons+Outlined|Material+Icons+Round',
-    'https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap'
-];
+    <!-- PWA Settings -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#ffffff">
+    <meta name="mobile-web-app-capable" content="yes">
+    
+    <!-- iOS Support (修正：使用相對路徑 ./) -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="高雄交通">
+    <link rel="apple-touch-icon" href="./icons/icon-192x192.png">
 
-// 安裝階段：預先下載靜態資源
-self.addEventListener('install', event => {
-    event.waitUntil(
-        caches.open(CACHE_NAME).then(cache => {
-            console.log('SW: Pre-caching offline assets');
-            return cache.addAll(STATIC_ASSETS);
-        })
-    );
-    self.skipWaiting(); // 強制讓新的 SW 立刻進入 active 狀態
-});
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Icons -->
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined|Material+Icons+Round" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
 
-// 啟用階段：清除舊版本的快取
-self.addEventListener('activate', event => {
-    event.waitUntil(
-        caches.keys().then(keys => {
-            return Promise.all(
-                keys.filter(key => key !== CACHE_NAME).map(key => {
-                    console.log('SW: Removing old cache', key);
-                    return caches.delete(key);
-                })
-            );
-        })
-    );
-    self.clients.claim(); // 讓 SW 立刻控制所有頁面
-});
+    <style>
+        /* 全域設定 */
+        body, html { height: 100%; margin: 0; overflow: hidden; font-family: 'Noto Sans TC', sans-serif; background: #f3f4f6; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+        #map { height: 100%; width: 100%; z-index: 1; will-change: transform; }
 
-// 攔截請求
-self.addEventListener('fetch', event => {
-    const url = new URL(event.request.url);
+        /* 圖釘與聚合樣式 */
+        .custom-icon { border-radius: 50%; color: white; display: flex; justify-content: center; align-items: center; box-shadow: 0 4px 8px rgba(0,0,0,0.4); transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); cursor: pointer; will-change: transform; border: 2px solid white; }
+        .custom-icon:hover { transform: scale(1.2); z-index: 1000 !important; }
+        
+        /* --- 圖釘顏色 --- */
+        .bus-icon { background: #2563eb; }
+        .ubike-icon { background: #ffd500; }
+        .line-bg-R { background-color: #ff0000; }
+        .line-bg-O { background-color: #ff8400; }
+        .line-bg-C { background-color: #16a34a; }
 
-    // 1. API 請求強制使用網絡 (Network Only)
-    // 包含公車(iBus)與 YouBike API
-    if (url.hostname.includes('ibus.tbkc.gov.tw') || url.hostname.includes('apis.youbike.com.tw')) {
-        event.respondWith(fetch(event.request));
-        return;
-    }
+        .metro-icon { font-weight: bold; font-size: 12px; line-height: 26px; text-align: center; color: white; }
 
-    // 2. 其他資源 (包含地圖圖磚、字型、腳本) 使用 Cache First 策略
-    event.respondWith(
-        caches.match(event.request).then(cachedResponse => {
-            // 如果快取有，直接回傳
-            if (cachedResponse) return cachedResponse;
+        /* --- 聚合圖示顏色 --- */
+        .marker-cluster div { color: white !important; border-radius: 50%; width: 30px; height: 30px; margin-left: 5px; margin-top: 5px; text-align: center; line-height: 30px; font-weight: bold; }
+        .marker-cluster-bus { background-color: rgba(37, 99, 235, 0.5) !important; }
+        .marker-cluster-bus div { background-color: #2563eb !important; }
+        .marker-cluster-ubike { background-color: rgba(255, 213, 0, 0.5) !important; }
+        .marker-cluster-ubike div { background-color: #ffd500 !important; color: black !important; }
+        .marker-cluster-metro-r { background-color: rgba(255, 0, 0, 0.5) !important; }
+        .marker-cluster-metro-r div { background-color: #ff0000 !important; }
+        .marker-cluster-metro-o { background-color: rgba(255, 132, 0, 0.5) !important; }
+        .marker-cluster-metro-o div { background-color: #ff8400 !important; }
+        .marker-cluster-lrt { background-color: rgba(22, 163, 74, 0.5) !important; }
+        .marker-cluster-lrt div { background-color: #16a34a !important; }
 
-            // 如果快取沒有，去網絡抓
-            return fetch(event.request).then(networkResponse => {
-                // 檢查回應是否有效
-                if (!networkResponse || networkResponse.status !== 200) {
-                    return networkResponse;
+        /* 搜尋欄 */
+        .search-container { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 1000; width: 94%; max-width: 400px; }
+        #search-box { background: white; border-radius: 99px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); display: flex; align-items: center; padding: 0.5rem 1rem; transition: all 0.3s; }
+        #search-results { background: white; width: 100%; margin-top: 8px; border-radius: 16px; max-height: 50vh; overflow-y: auto; display: none; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); border: 1px solid #f3f4f6; }
+        #search-results.show { display: block; }
+
+        /* 側邊欄與 RWD */
+        #sidebar { position: fixed; z-index: 2000; box-shadow: 0 0 25px rgba(0,0,0,0.2); display: flex; flex-direction: column; overflow: hidden; }
+        #sidebar-header { flex-shrink: 0; position: sticky; top: 0; z-index: 10; background: white; }
+        #sb-content { flex-grow: 1; overflow-y: auto; }
+        @media (orientation: portrait) { #sidebar { left: 0; bottom: 0; width: 100%; height: 0; border-radius: 28px 28px 0 0; transition: height 0.4s cubic-bezier(0.25, 1, 0.5, 1); } #sidebar-header { border-radius: 28px 28px 0 0; touch-action: none; } }
+        @media (orientation: landscape) { #drag-area { display: none; } #sidebar { top: 12px; left: 12px; height: calc(100% - 24px); width: 380px; transform: translateX(-110%); border-radius: 24px; border: 1px solid #e5e7eb; transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1); } #sidebar.active { transform: translateX(0); } #sidebar-header { border-radius: 24px 24px 0 0; } .search-container { top: 20px; left: 20px; width: 380px; max-width: none; transform: none; transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1); } body.sidebar-open .search-container { transform: translateX(410px); } }
+        
+        /* 動畫 & UI 元件 */
+        #loading-screen { position: fixed; inset: 0; background: rgba(255,255,255,0.95); z-index: 3000; display: flex; flex-direction: column; justify-content: center; align-items: center; transition: opacity 0.5s; pointer-events: none; }
+        #loading-screen.visible { pointer-events: auto; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #2563eb; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .spin-anim { animation: spin 0.8s linear infinite; }
+        #toast-container { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(20px); z-index: 4000; pointer-events: none; transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); opacity: 0; width: 90%; max-width: 300px; display: flex; justify-content: center; }
+        #toast-container.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+        .toast-content { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(8px); color: #1e293b; padding: 10px 20px; border-radius: 99px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 8px; border: 1px solid #e2e8f0; }
+        #nav-modal, #iframe-modal { transition: opacity 0.3s ease; }
+        #nav-modal.hidden, #iframe-modal.hidden { opacity: 0; pointer-events: none; }
+        #nav-modal:not(.hidden), #iframe-modal:not(.hidden) { opacity: 1; pointer-events: auto; }
+        #iframe-modal { z-index: 5000; }
+        #iframe-content { width: 100%; flex-grow: 1; border: none; min-height: 0; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+
+        /* 更新進度圈動畫 */
+        @property --angle { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
+        @keyframes countdown-ring { from { --angle: 0deg; } to { --angle: 360deg; } }
+        #refresh-progress-ring { background: conic-gradient(transparent var(--angle), #3b82f6 var(--angle)); display: none; }
+        #refresh-progress-ring.animate-ring { display: block; animation: countdown-ring linear; }
+        
+        /* 設定按鈕與面板樣式 */
+        #settings-btn { position: fixed; bottom: 20px; right: 20px; z-index: 1000; }
+        #settings-modal { transition: opacity 0.3s; z-index: 6000; }
+        #settings-modal.hidden { opacity: 0; pointer-events: none; }
+        .toggle-switch { width: 40px; height: 24px; background: #e5e7eb; border-radius: 99px; position: relative; cursor: pointer; transition: background-color 0.2s; }
+        .toggle-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; background: white; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.1); transition: transform 0.2s; }
+        input:checked + .toggle-switch { background: #2563eb; }
+        input:checked + .toggle-switch::after { transform: translateX(16px); }
+    </style>
+</head>
+<body>
+
+    <!-- UI Elements -->
+    <div id="loading-screen" class="visible">
+        <div class="loader mb-4" id="loader-spinner"></div>
+        <h2 class="text-xl font-bold text-slate-800">高雄交通智慧地圖</h2>
+        <p id="loading-text" class="text-sm text-slate-500 mt-2">系統初始化中</p>
+        
+        <!-- 錯誤訊息顯示區域 (新增行內樣式以防 Tailwind 沒載入) -->
+        <div id="loading-error" class="hidden flex-col items-center mt-3 animate-pulse" style="display: none; flex-direction: column; align-items: center; margin-top: 12px;">
+            <span id="loading-error-text" class="text-red-500 font-bold text-sm mb-3 text-center px-4" style="color: #ef4444; font-weight: bold; font-size: 14px; margin-bottom: 12px; text-align: center;"></span>
+            <button id="retry-btn" onclick="location.reload()" class="px-4 py-2 bg-slate-800 text-white text-sm rounded-lg hover:bg-slate-700 transition shadow-lg" style="padding: 8px 16px; background-color: #1e293b; color: white; border-radius: 8px; border: none; cursor: pointer;">重新載入</button>
+        </div>
+    </div>
+    
+    <div id="toast-container"><div id="toast-message" class="toast-content"><span id="toast-icon" class="material-icons-round text-lg">info</span><span id="toast-text"></span></div></div>
+    <div id="nav-modal" class="fixed inset-0 z-[5000] flex items-center justify-center bg-black/40 backdrop-blur-sm hidden p-4" onclick="handleModalClick(event)"><div class="bg-white rounded-3xl shadow-2xl p-6 w-full max-w-sm" onclick="event.stopPropagation()"><div class="flex items-center gap-3 mb-4"><div class="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center shrink-0"><span class="material-icons-round text-xl">directions_bus</span></div><div><h3 class="text-lg font-bold text-slate-800">查看路線動態</h3><p class="text-sm text-slate-500">將開啟內嵌動態頁面</p></div></div><p class="text-slate-600 mb-6">是否查看 <span id="nav-route-name" class="font-bold text-blue-600"></span> 的詳細動態？</p><div class="flex gap-3"><button onclick="cancelRedirect()" class="flex-1 py-3 px-4 rounded-xl bg-gray-100 font-bold hover:bg-gray-200 transition">取消</button><button onclick="doRedirect()" class="flex-1 py-3 px-4 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition">前往</button></div></div></div>
+    <div id="iframe-modal" class="fixed inset-0 bg-white hidden flex flex-col"><div class="h-14 bg-white border-b flex items-center px-4 md:px-6 shadow-sm shrink-0"><button onclick="closeIframeModal()" class="text-slate-500 hover:text-slate-800 transition mr-4"><span class="material-icons-round">arrow_back</span></button><h3 id="iframe-title" class="text-lg font-bold truncate flex-1"></h3></div><iframe id="iframe-content" src="" allow="geolocation" sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals"></iframe></div>
+    <div class="search-container"><div id="search-box"><span class="material-icons-outlined text-slate-400 mr-2">search</span><input type="text" id="search-input" placeholder="搜尋公車、捷運、YouBike..." class="flex-1 outline-none bg-transparent"><button id="search-clear" class="hidden p-1 text-slate-300 hover:text-slate-500 rounded-full transition mr-1 flex items-center justify-center"><span class="material-icons-round text-lg">cancel</span></button><div class="w-[1px] h-5 bg-gray-200 mx-1"></div><button class="p-2 text-slate-400 hover:text-blue-600 transition" onclick="locateUser()" title="定位"><span class="material-icons-outlined">my_location</span></button></div><div id="search-results"></div></div>
+    <div id="sidebar" class="bg-slate-50"><div id="sidebar-header" class="cursor-grab active:cursor-grabbing"><div id="drag-area"><div class="w-full flex justify-center pt-3 pb-1"><div class="w-12 h-1.5 bg-gray-300 rounded-full"></div></div></div><div class="px-6 py-4 border-b flex justify-between items-start"><div class="flex-1 min-w-0 pr-2"><div id="sb-badge" class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold mb-2 transition-colors bg-gray-100"></div><h2 id="sb-title" class="text-2xl font-bold leading-tight truncate"></h2><div class="flex items-center mt-1 text-slate-500"><span class="material-icons-outlined text-sm mr-1">place</span><p id="sb-subtitle" class="text-sm truncate"></p></div></div>
+        <div id="refresh-container" class="relative w-10 h-10">
+            <div id="refresh-progress-ring" class="absolute inset-[-3px] rounded-full z-0"></div>
+            <button id="refresh-btn" onclick="refreshData()" class="relative w-10 h-10 flex items-center justify-center bg-slate-50 text-slate-500 hover:bg-blue-50 hover:text-blue-600 rounded-full transition shadow-sm border z-10" title="更新即時資料">
+                <span class="material-icons-round text-xl">refresh</span>
+            </button>
+        </div>
+    </div></div><div id="sb-content" class="bg-slate-50 p-4 space-y-3 pb-safe rounded-b-[28px]"></div></div>
+    
+    <button id="settings-btn" onclick="openSettingsModal()" class="w-14 h-14 bg-white rounded-full shadow-lg flex items-center justify-center text-slate-600 hover:bg-blue-50 hover:text-blue-600 transition">
+        <span class="material-icons-round text-2xl">layers</span>
+    </button>
+
+    <div id="settings-modal" class="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 hidden" onclick="closeSettingsModal()">
+        <div class="bg-white w-full max-w-sm rounded-3xl shadow-2xl p-6" onclick="event.stopPropagation()">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-bold text-slate-800">圖層設定</h3>
+                <button onclick="closeSettingsModal()" class="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 transition"><span class="material-icons-round text-xl">close</span></button>
+            </div>
+            <div id="settings-toggles" class="space-y-4"></div>
+        </div>
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+
+    <script>
+        const CONFIG = { 
+            UBIKE_LIST: 'https://apis.youbike.com.tw/json/station-min-yb2.json', 
+            UBIKE_REALTIME: 'https://apis.youbike.com.tw/tw2/parkingInfo', 
+            IBUS_API: 'https://ibus.tbkc.gov.tw/ibus/graphql', 
+            TRACKER_BASE: 'https://kaohsiung-go.pages.dev/bus', 
+            PROXY_URL: 'https://corsproxy.io/?', 
+            PROXY_SEC: 'https://cors-anywhere.potatosserver.workers.dev/?url=', 
+            METRO_STATIONS: 'https://traffic.tbkc.gov.tw/api/metro/stations', 
+            LRT_STATIONS: 'https://traffic.tbkc.gov.tw/api/lrts', 
+            METRO_LIVE: 'https://traffic.tbkc.gov.tw/api/metro/live-boards?language=zh-TW', 
+            LRT_LIVE: 'https://traffic.tbkc.gov.tw/api/lrts/live-boards?language=zh-TW' 
+        };
+
+        const SimpleDB = {
+            get(key) {
+                try { const data = localStorage.getItem(key); return data ? JSON.parse(data) : null; } 
+                catch (e) { console.error('LocalStorage 讀取失敗:', e); return null; }
+            },
+            set(key, value) {
+                try { localStorage.setItem(key, JSON.stringify(value)); } 
+                catch (e) { console.error('LocalStorage 寫入失敗 (可能空間不足):', e); }
+            }
+        };
+
+        const STATE = { 
+            map: null, 
+            busCluster: null, bikeCluster: null, metroRCluster: null, metroOCluster: null, lrtCluster: null, 
+            dataBus: [], dataBike: [], dataMetro: [], markersMap: { bus: {}, bike: {}, metro: {} }, 
+            currentContext: null, pendingRouteId: null, pendingStationId: null, autoRefreshTimer: null, 
+            userMarker: null, userAccuracy: null, geoWatcherId: null, metroLrtLiveCache: null, metroLrtLiveCacheTime: 0, 
+            settings: {}, markersCreated: { bus: false, bike: false, metro: false }, anchors: [],
+            useSecondaryProxy: false, cancelLocateMove: false
+        };
+        const LOCATE_ICON_ELEMENT = document.querySelector('#search-box button:last-child span');
+        const DEFAULT_SETTINGS = { bus: true, bike: true, metroR: true, metroO: true, lrt: true };
+
+        window.onload = async () => {
+            // 安全機制：若超過 15 秒還沒載入完成，強制顯示錯誤
+            const safetyTimeout = setTimeout(() => {
+                const loading = document.getElementById('loading-screen');
+                if (loading && loading.classList.contains('visible')) {
+                    showFatalError("系統初始化逾時，請檢查網路連線");
+                }
+            }, 15000);
+
+            try {
+                // 強制註冊 SW，確保 CDN 能被快取 (不論是 Web 或 App)
+                if ('serviceWorker' in navigator) {
+                    navigator.serviceWorker.register('./sw.js')
+                        .then(reg => console.log('Service Worker 註冊成功'))
+                        .catch(err => console.error('Service Worker 註冊失敗', err));
                 }
 
-                // 只快取同源 (basic) 或明確成功的跨域 (cors) 請求
-                // 這是為了避免快取不透明 (opaque) 的錯誤回應
-                const responseType = networkResponse.type;
-                if (responseType !== 'basic' && responseType !== 'cors') {
-                    return networkResponse;
+                // 關鍵檢查：如果無網路且 SW 沒快取到 Leaflet，L 會是 undefined，這時要手動拋錯，避免 TypeError 崩潰
+                if (typeof L === 'undefined') {
+                    throw new Error("地圖元件載入失敗 (請連網後重試以快取資源)");
                 }
 
-                // 複製回應並存入快取
-                const responseToCache = networkResponse.clone();
-                caches.open(CACHE_NAME).then(cache => {
-                    cache.put(event.request, responseToCache);
+                initSettings();
+                const params = new URLSearchParams(window.location.search);
+                const hasTargetParam = params.has('bus') || params.has('youbike') || params.has('metro');
+
+                initMap();
+                initSidebarGestures();
+                initHistoryListener();
+                initialLocate(!hasTargetParam);
+                startContinuousGeolocation();
+                
+                window.addEventListener('resize', () => {
+                    const sb = document.getElementById('sidebar');
+                    if (window.innerWidth > window.innerHeight) {
+                        sb.style.removeProperty('height');
+                    } else {
+                        if (sb.classList.contains('active') && !sb.style.height) sb.style.height = '60vh';
+                    }
                 });
 
-                return networkResponse;
-            }).catch(() => {
-                // 當網路請求失敗且快取中也沒有對應資源時會觸發
-                // 可選擇性地回傳一個預設的離線頁面或資源
-                // console.log('Fetch failed and no cache for:', event.request.url);
+                document.addEventListener('visibilitychange', () => {
+                    if (document.visibilityState === 'visible' && STATE.currentContext && document.getElementById('sidebar').classList.contains('active')) {
+                        refreshData(true);
+                    }
+                });
+
+                const loadingTasks = [];
+                if (STATE.settings.bus) loadingTasks.push({ name: '公車站點', fn: loadBusData });
+                if (STATE.settings.bike) loadingTasks.push({ name: 'YouBike站點', fn: loadBikeData });
+                if (STATE.settings.metroR || STATE.settings.metroO || STATE.settings.lrt) {
+                    loadingTasks.push({ name: '捷運輕軌站點', fn: loadMetroLrtData });
+                }
+
+                const totalSteps = loadingTasks.length;
+                let currentStep = 1;
+
+                // 執行載入任務
+                for (const task of loadingTasks) {
+                    updateLoading(`載入${task.name}`, currentStep, totalSteps);
+                    await task.fn(); // 這裡現在會安全地回傳，即使離線也不會報錯
+                    currentStep++;
+                }
+
+                clearTimeout(safetyTimeout);
+
+                // 檢查是否完全沒有資料且離線 (Critical Error)
+                const totalDataCount = STATE.dataBus.length + STATE.dataBike.length + STATE.dataMetro.length;
+                if (totalDataCount === 0 && !navigator.onLine) {
+                    showFatalError("無網路連線且無離線資料，無法運作");
+                    return; // 停止執行，停留在錯誤畫面
+                }
+
+                if (STATE.settings.bus) createBusMarkers();
+                if (STATE.settings.bike) createBikeMarkers();
+                if (STATE.settings.metroR || STATE.settings.metroO || STATE.settings.lrt) createMetroLrtMarkers();
+
+                handleUrlParameters();
+                applySettings();
+
+                const loading = document.getElementById('loading-screen');
+                loading.style.opacity = '0';
+                loading.classList.remove('visible');
+                setTimeout(() => loading.remove(), 500);
+
+            } catch (err) {
+                console.error("Initialization Error:", err);
+                clearTimeout(safetyTimeout);
+                // 顯示更友善的錯誤訊息
+                let msg = "發生未預期的錯誤，請重試";
+                if (err.message.includes("地圖元件")) msg = err.message;
+                showFatalError(msg);
+            }
+        };
+
+        // 新增：顯示致命錯誤並停止轉圈 (支援 style 顯示以防 css 沒載入)
+        function showFatalError(msg) {
+            const loader = document.getElementById('loader-spinner');
+            const errorDiv = document.getElementById('loading-error');
+            const errorText = document.getElementById('loading-error-text');
+            const statusText = document.getElementById('loading-text');
+
+            if (loader) loader.style.display = 'none'; // 隱藏轉圈
+            if (statusText) statusText.style.display = 'none'; // 隱藏狀態文字
+            if (errorText) errorText.innerText = msg;
+            if (errorDiv) {
+                errorDiv.classList.remove('hidden');
+                // 強制設定 display: flex，確保即使 Tailwind 沒載入也能顯示
+                errorDiv.style.display = 'flex';
+            }
+        }
+
+        function updateLoading(txt, current, total) {
+            const loadingTextElement = document.getElementById('loading-text');
+            if (loadingTextElement) {
+                let fullText = txt;
+                if (current && total > 0) fullText += ` (${current}/${total})`;
+                loadingTextElement.innerText = fullText;
+            }
+        }
+
+        function showToast(msg, type = 'info') { const c = document.getElementById('toast-container'), t = document.getElementById('toast-text'), i = document.getElementById('toast-icon'); t.innerText = msg; if (type === 'error') { i.innerText = 'error'; i.className = 'material-icons-round text-red-500 text-xl'; } else if (type === 'success') { i.innerText = 'check_circle'; i.className = 'material-icons-round text-green-500 text-xl'; } else { i.innerText = 'info'; i.className = 'material-icons-round text-blue-500 text-xl'; } c.classList.add('show'); if (window.toastTimeout) clearTimeout(window.toastTimeout); window.toastTimeout = setTimeout(() => { c.classList.remove('show'); }, 3000); }
+
+        function initHistoryListener() { window.addEventListener('popstate', (e) => { const nm = document.getElementById('nav-modal'), im = document.getElementById('iframe-modal'), sb = document.getElementById('sidebar'); if (!im.classList.contains('hidden')) { im.classList.add('hidden'); im.querySelector('iframe').src = ''; } else if (!nm.classList.contains('hidden')) { nm.classList.add('hidden'); } else if (sb.classList.contains('active')) { toggleSidebarUI(false); } }); }
+        function handleModalClick(event) { if (event.target.id === 'nav-modal') cancelRedirect(); }
+        function confirmRedirect(rid, rn, sid) { STATE.pendingRouteId=rid; STATE.pendingStationId=sid; document.getElementById('nav-route-name').innerText=rn; document.getElementById('nav-modal').classList.remove('hidden'); history.pushState({modal:'nav'},'',); }
+        
+        function doRedirect() {
+            const m=document.getElementById('nav-modal'), im=document.getElementById('iframe-modal'), i=document.getElementById('iframe-content'), t=document.getElementById('iframe-title');
+            m.classList.add('hidden'); 
+            const rn=document.getElementById('nav-route-name').innerText;
+            t.innerText=`${rn} 路線動態`;
+            let u=`${CONFIG.TRACKER_BASE}?route=${STATE.pendingRouteId}`;
+            if(STATE.pendingStationId) u+=`&station=${STATE.pendingStationId}`;
+            i.src=u;
+            im.classList.remove('hidden');
+            history.replaceState({modal:'iframe'},'');
+        }
+
+        function cancelRedirect() { history.back(); }
+
+        function closeIframeModal() {
+            const iframeModal = document.getElementById('iframe-modal');
+            if (iframeModal) {
+                iframeModal.classList.add('hidden');
+                iframeModal.querySelector('iframe').src = 'about:blank';
+            }
+            if (history.state && history.state.modal === 'iframe') {
+                history.back();
+            }
+        }
+
+        function startAutoRefresh(interval = 30000) {
+            stopAutoRefresh(); 
+            if (!STATE.currentContext) return;
+            const ring = document.getElementById('refresh-progress-ring');
+            ring.classList.remove('animate-ring');
+            void ring.offsetWidth; 
+            ring.style.animationDuration = `${interval}ms`;
+            ring.classList.add('animate-ring');
+            STATE.autoRefreshTimer = setTimeout(() => {
+                if (document.getElementById('sidebar').classList.contains('active')) {
+                    refreshData(true);
+                } else {
+                    stopAutoRefresh();
+                }
+            }, interval);
+        }
+
+        function stopAutoRefresh() {
+            if (STATE.autoRefreshTimer) clearTimeout(STATE.autoRefreshTimer);
+            STATE.autoRefreshTimer = null;
+            const ring = document.getElementById('refresh-progress-ring');
+            if(ring) ring.classList.remove('animate-ring');
+        }
+        
+        function initialLocate(moveToUser = true) { if (!navigator.geolocation) return; navigator.geolocation.getCurrentPosition((pos) => { updateUserLocation(pos); if (moveToUser) { STATE.map.flyTo([pos.coords.latitude, pos.coords.longitude], 17, { animate: true, duration: 1.2 }); } }, (err) => {}, { timeout: 8000, enableHighAccuracy: true }); }
+        function updateUserLocation(pos) { const { latitude, longitude, accuracy } = pos.coords; if (STATE.userAccuracy) STATE.map.removeLayer(STATE.userAccuracy); if (STATE.userMarker) STATE.map.removeLayer(STATE.userMarker); STATE.userAccuracy = L.circle([latitude, longitude], { radius: accuracy, color: '#3b82f6', fillOpacity: 0.1, weight: 1, interactive: false }).addTo(STATE.map); STATE.userMarker = L.marker([latitude, longitude], { icon: L.divIcon({ className: 'bg-blue-600 border-2 border-white rounded-full shadow-lg', iconSize: [14, 14] }) }).addTo(STATE.map); }
+        function startContinuousGeolocation() { if (!navigator.geolocation || STATE.geoWatcherId) return; LOCATE_ICON_ELEMENT.innerText = 'gps_fixed'; const s = (pos) => { updateUserLocation(pos); }; const e = (err) => { LOCATE_ICON_ELEMENT.innerText = 'my_location'; if(STATE.geoWatcherId) { navigator.geolocation.clearWatch(STATE.geoWatcherId); STATE.geoWatcherId = null; } }; STATE.geoWatcherId = navigator.geolocation.watchPosition( s, e, { timeout: 15000, enableHighAccuracy: true, maximumAge: 0 } ); }
+        
+        function calculateOffsetCenter(latlng, targetZoom) {
+            const sb = document.getElementById('sidebar');
+            const zoom = targetZoom ?? STATE.map.getZoom();
+            const targetPoint = STATE.map.project(latlng, zoom);
+            const isLandscape = window.innerWidth > window.innerHeight;
+            let panByX = 0, panByY = 0;
+            if (isLandscape) { panByX = -196; } else { 
+                const sr = document.querySelector('.search-container').getBoundingClientRect();
+                const vmh = window.innerHeight * 0.4; 
+                const vmcy = sr.bottom + (vmh - sr.bottom) / 2; 
+                panByY = (window.innerHeight / 2) - vmcy; 
+            }
+            const newCenterPoint = targetPoint.add(L.point(panByX, panByY));
+            return STATE.map.unproject(newCenterPoint, zoom);
+        }
+
+        function smoothMoveTo(targetLatLng, targetZoom, forceOffset = false) {
+            const sb = document.getElementById('sidebar');
+            const shouldOffset = forceOffset || sb.classList.contains('active');
+            const finalZoom = targetZoom ?? STATE.map.getZoom();
+            let destLatLng = targetLatLng;
+            if (shouldOffset) { destLatLng = calculateOffsetCenter(targetLatLng, finalZoom); }
+            const currentScreenPoint = STATE.map.latLngToContainerPoint(STATE.map.getCenter());
+            if (finalZoom === STATE.map.getZoom()) {
+                const targetScreenPoint = STATE.map.latLngToContainerPoint(destLatLng);
+                const dist = currentScreenPoint.distanceTo(targetScreenPoint);
+                if (dist < 10) return; 
+                STATE.map.panTo(destLatLng, { animate: true, duration: 0.8 });
+            } else {
+                STATE.map.flyTo(destLatLng, finalZoom, { animate: true, duration: 0.8 });
+            }
+        }
+
+        function locateUser() {
+            if (!navigator.geolocation) return showToast('瀏覽器不支援定位', 'error');
+            STATE.cancelLocateMove = false; 
+            LOCATE_ICON_ELEMENT.classList.add('spin-anim');
+            if (STATE.userMarker) { smoothMoveTo(STATE.userMarker.getLatLng(), 18, false); }
+            navigator.geolocation.getCurrentPosition((pos) => {
+                updateUserLocation(pos);
+                LOCATE_ICON_ELEMENT.classList.remove('spin-anim');
+                if (!STATE.cancelLocateMove) {
+                    const latlng = L.latLng(pos.coords.latitude, pos.coords.longitude);
+                    smoothMoveTo(latlng, 18, false);
+                    showToast('已重新定位到您的目前位置', 'success');
+                } else { showToast('已更新位置', 'success'); }
+                if (!STATE.geoWatcherId) startContinuousGeolocation();
+            }, (err) => {
+                LOCATE_ICON_ELEMENT.classList.remove('spin-anim');
+                showToast('無法取得您的即時位置', 'error');
+            }, { timeout: 8000, enableHighAccuracy: true });
+        }
+
+        async function refreshData(isAuto = false) { 
+            if (!STATE.currentContext) return;
+            stopAutoRefresh(); 
+            const btnIcon = document.querySelector('#refresh-btn span');
+            const contentDiv = document.getElementById('sb-content');
+            const isFirstLoad = contentDiv.querySelector('.animate-pulse') !== null || contentDiv.innerHTML.trim() === '';
+            btnIcon.classList.add('spin-anim');
+            const { type, data } = STATE.currentContext;
+            let newData = null, isSuccess = false, nextRefreshTime = 30000; 
+            if (type === 'bus') newData = await getBusArrivals(data.id);
+            else if (type === 'bike') newData = await getBikeRealtime(data.station_no);
+            else if (type === 'metro') newData = await getMetroLrtArrivals(data.id, true);
+            if (newData === null) {
+                if (isFirstLoad) {
+                    if (type === 'bus') renderBusContent(null, contentDiv);
+                    else if (type === 'bike') renderBikeContent(null, contentDiv);
+                    else if (type === 'metro') renderMetroLrtContent(null, contentDiv);
+                    if (!isAuto) showToast('資料載入失敗', 'error');
+                } else { showToast('更新失敗，保留舊資料', 'error'); }
+                nextRefreshTime = 10000; 
+            } else {
+                isSuccess = true;
+                if (type === 'bus') renderBusContent(newData, contentDiv);
+                else if (type === 'bike') renderBikeContent(newData, contentDiv);
+                else if (type === 'metro') renderMetroLrtContent(newData, contentDiv);
+            }
+            setTimeout(() => {
+                btnIcon.classList.remove('spin-anim');
+                if (isSuccess) {
+                    if (isAuto) showToast('即時資料已自動更新', 'success');
+                    else showToast('即時資料已更新', 'success');
+                }
+                startAutoRefresh(nextRefreshTime);
+            }, 600);
+        }
+
+        function initMap() {
+            STATE.map = L.map('map', { zoomControl: false }).setView([22.631442, 120.301890], 13);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(STATE.map);
+            STATE.map.on('click', () => { if (document.getElementById('sidebar').classList.contains('active')) history.back(); });
+            STATE.map.on('dragstart', () => { STATE.cancelLocateMove = true; });
+            const o = { showCoverageOnHover: false, maxClusterRadius: 80, disableClusteringAtZoom: 16, spiderfyOnMaxZoom: false };
+            const cf = (cn) => (c) => L.divIcon({ html: `<div>${c.getChildCount()}</div>`, className: `marker-cluster ${cn}`, iconSize: [40, 40] });
+            STATE.busCluster = L.markerClusterGroup({ ...o, iconCreateFunction: cf('marker-cluster-bus') });
+            STATE.bikeCluster = L.markerClusterGroup({ ...o, iconCreateFunction: cf('marker-cluster-ubike') });
+            STATE.metroRCluster = L.markerClusterGroup({ ...o, iconCreateFunction: cf('marker-cluster-metro-r') });
+            STATE.metroOCluster = L.markerClusterGroup({ ...o, iconCreateFunction: cf('marker-cluster-metro-o') });
+            STATE.lrtCluster = L.markerClusterGroup({ ...o, iconCreateFunction: cf('marker-cluster-lrt') });
+        }
+
+        const fetchWithProxy = async (url) => {
+            const isApp = typeof window.flutter_inappwebview !== 'undefined';
+            if (isApp) {
+                try {
+                    const res = await fetch(url);
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    return await res.json();
+                } catch (e) { console.warn(`[App] 直連失敗`); }
+            }
+            const separator = url.includes('?') ? '&' : '?';
+            const urlWithNoCache = `${url}${separator}_t=${Date.now()}`;
+            const target = encodeURIComponent(urlWithNoCache);
+            const TIMEOUT_MS = 5000;
+            const doFetch = async (proxyBase) => {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+                try {
+                    const res = await fetch(proxyBase + target, { signal: controller.signal });
+                    clearTimeout(timeoutId);
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    return await res.json();
+                } catch (err) { clearTimeout(timeoutId); throw err; }
+            };
+            if (STATE.useSecondaryProxy) return await doFetch(CONFIG.PROXY_SEC);
+            try { return await doFetch(CONFIG.PROXY_URL); } catch (e) {
+                STATE.useSecondaryProxy = true;
+                return await doFetch(CONFIG.PROXY_SEC);
+            }
+        };
+
+        async function fetchGraphQL(q) { 
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 6000); 
+            try { 
+                const r = await fetch(CONFIG.IBUS_API, { 
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query:q }), signal: controller.signal 
+                }); 
+                clearTimeout(timeoutId);
+                if (!r.ok) throw new Error(`HTTP ${r.status}`); 
+                return await r.json(); 
+            } catch (e) { clearTimeout(timeoutId); throw e; } 
+        }
+
+        async function fetchBusStationsGodMode() { const u = new Map(); try { const lq=`query { routes(lang: "zh") { edges { node { id name } } } }`; const ld=await fetchGraphQL(lq); const ar=ld.data.routes.edges; const bqb=ar.map(e=>`r_${e.node.id}: route(xno: ${e.node.id}, lang: "zh") { stations { edges { node { id name lat lon } } } }`).join('\n'); const gq=`query{${bqb}}`; const rs=await fetchGraphQL(gq); if (rs.errors) throw new Error("GQL Error"); if (rs.data) Object.values(rs.data).forEach(rd=>{ if(rd&&rd.stations)rd.stations.edges.forEach(e=>{ const s=e.node; if(!u.has(s.id)&&s.lat&&s.lon)u.set(s.id,{id:s.id,name:s.name,lat:s.lat,lon:s.lon}); }); }); return Array.from(u.values()); } catch (e) { throw e; } }
+        
+        async function loadBusData() {
+            const cached = SimpleDB.get('OFFLINE_BUS');
+            if (cached) { STATE.dataBus = cached; }
+            if (!navigator.onLine) return; // 離線直接返回，不報錯
+            try {
+                const data = await fetchBusStationsGodMode();
+                if (data && data.length > 0) { STATE.dataBus = data; SimpleDB.set('OFFLINE_BUS', data); }
+            } catch (e) {}
+        }
+
+        async function loadBikeData() {
+            const cached = SimpleDB.get('OFFLINE_BIKE');
+            if (cached) { STATE.dataBike = cached; }
+            if (!navigator.onLine) return;
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 5000);
+                const res = await fetch(CONFIG.UBIKE_LIST, { signal: controller.signal });
+                clearTimeout(timeoutId);
+                const data = await res.json();
+                const validData = data.filter(s => { 
+                    s.lat = parseFloat(s.lat); s.lng = parseFloat(s.lng); 
+                    return !isNaN(s.lat) && !isNaN(s.lng) && s.lat > 22.4 && s.lng > 120.1; 
+                });
+                if (validData.length > 0) { STATE.dataBike = validData; SimpleDB.set('OFFLINE_BIKE', validData); }
+            } catch (e) {}
+        }
+
+        async function loadMetroLrtData() {
+            const cached = SimpleDB.get('OFFLINE_METRO');
+            if (cached) { STATE.dataMetro = cached; }
+            if (!navigator.onLine) return;
+            try {
+                const [metro, lrt] = await Promise.all([fetchWithProxy(CONFIG.METRO_STATIONS), fetchWithProxy(CONFIG.LRT_STATIONS)]);
+                const all = [];
+                (metro??[]).forEach(s => { const lon = s.position?.lng ?? s.position?.lon; if (s.id && lon) all.push({ id: s.id, name: s.name, lat: s.position.lat, lon: lon }); });
+                (lrt??[]).forEach(s => { if (s.id && s.position?.lng) all.push({ id: s.id, name: s.name, lat: s.position.lat, lon: s.position.lng }); });
+                if (all.length > 0) { STATE.dataMetro = all; SimpleDB.set('OFFLINE_METRO', all); }
+            } catch (e) {}
+        }
+        
+        function getVisualPosition(lat, lon) {
+            lat = parseFloat(lat); lon = parseFloat(lon); if (isNaN(lat) || isNaN(lon)) return null;
+            const THRESHOLD = 0.00009; 
+            for (let anchor of STATE.anchors) {
+                const dLat = lat - anchor.lat, dLon = lon - anchor.lon, distSq = (dLat * dLat) + (dLon * dLon);
+                if (distSq < (THRESHOLD * THRESHOLD)) {
+                    anchor.count++; const angle = anchor.count * 2.399, radius = 0.00010 + (anchor.count * 0.00002); 
+                    return { lat: anchor.lat + (radius * Math.cos(angle)), lon: anchor.lon + (radius * Math.sin(angle)) };
+                }
+            }
+            STATE.anchors.push({ lat, lon, count: 0 }); return { lat, lon };
+        }
+
+        function createBusMarkers() { if (STATE.markersCreated.bus) return; const markers = []; STATE.dataBus.forEach(s => { const pos = getVisualPosition(s.lat, s.lon); if (!pos) return; const marker = L.marker([pos.lat, pos.lon], { icon: L.divIcon({ className: 'custom-icon bus-icon', html: '<span class="material-icons-outlined text-lg">directions_bus</span>', iconSize: [30, 30] }) }); marker.on('click', (e) => { L.DomEvent.stopPropagation(e); handleMarkerClick(marker, 'bus', s); }); STATE.markersMap.bus[s.id] = marker; markers.push(marker); }); STATE.busCluster.addLayers(markers); STATE.markersCreated.bus = true; }
+        function createBikeMarkers() { if (STATE.markersCreated.bike) return; const markers = []; STATE.dataBike.forEach(s => { const pos = getVisualPosition(s.lat, s.lng); if (!pos) return; const marker = L.marker([pos.lat, pos.lon], { icon: L.divIcon({ className: 'custom-icon ubike-icon', html: '<span class="material-icons-round text-lg text-black">pedal_bike</span>', iconSize: [30, 30] }) }); marker.on('click', (e) => { L.DomEvent.stopPropagation(e); handleMarkerClick(marker, 'bike', s); }); STATE.markersMap.bike[s.station_no] = marker; markers.push(marker); }); STATE.bikeCluster.addLayers(markers); STATE.markersCreated.bike = true; }
+        function createMetroLrtMarkers() { if (STATE.markersCreated.metro) return; const mR = [], mO = [], mC = []; STATE.dataMetro.forEach(s => { const pos = getVisualPosition(s.lat, s.lon); if (!pos) return; const l = s.id.charAt(0).toUpperCase(); const i = L.divIcon({className:`custom-icon metro-icon line-bg-${l}`, html:`<b>${l}</b>`, iconSize:[30,30]}); const marker = L.marker([pos.lat, pos.lon], {icon: i}); marker.on('click', (e) => { L.DomEvent.stopPropagation(e); handleMarkerClick(marker,'metro',s); }); STATE.markersMap.metro[s.id] = marker; if(l==='R') mR.push(marker); else if(l==='O') mO.push(marker); else if(l==='C') mC.push(marker); }); STATE.metroRCluster.addLayers(mR); STATE.metroOCluster.addLayers(mO); STATE.lrtCluster.addLayers(mC); STATE.markersCreated.metro = true; }
+
+        function handleMarkerClick(marker, type, data) { 
+            STATE.cancelLocateMove = true; 
+            openSidebar(type, data); 
+        }
+
+        function toggleSidebarUI(show) { const sb = document.getElementById('sidebar'); const isLandscape = window.innerWidth > window.innerHeight; if (isLandscape) { sb.classList.toggle('active', show); } else { sb.style.height = show ? '60vh' : '0px'; sb.classList.toggle('active', show); } document.body.classList.toggle('sidebar-open', show); if (!show) { stopAutoRefresh(); STATE.currentContext = null; if(new URLSearchParams(window.location.search).toString() !== '') history.replaceState(null, '', window.location.pathname); } }
+        
+        function initSidebarGestures() {
+            const sidebar = document.getElementById('sidebar');
+            const header = document.getElementById('sidebar-header');
+            let isDragging = false, startY = 0, startHeight = 0, startTime = 0;
+            const MIN_CLOSE_HEIGHT = window.innerHeight * 0.2, FLICK_VELOCITY_THRESHOLD = 0.7;
+            const isLandscape = () => window.innerWidth > window.innerHeight;
+            header.addEventListener('touchstart', (e) => {
+                if (isLandscape() || !sidebar.classList.contains('active')) return;
+                isDragging = true; startY = e.touches[0].clientY; startHeight = sidebar.offsetHeight; startTime = Date.now();
+                sidebar.style.transition = 'none';
+            }, { passive: true });
+            document.addEventListener('touchmove', (e) => {
+                if (!isDragging) return;
+                const currentY = e.touches[0].clientY, diffY = currentY - startY;
+                let newHeight = startHeight - diffY;
+                const maxHeight = window.innerHeight * 0.9;
+                if (newHeight > maxHeight) newHeight = maxHeight;
+                sidebar.style.height = `${newHeight}px`;
+            }, { passive: true });
+            document.addEventListener('touchend', (e) => {
+                if (!isDragging) return;
+                isDragging = false;
+                sidebar.style.transition = 'height 0.4s cubic-bezier(0.25, 1, 0.5, 1)';
+                const endY = e.changedTouches[0].clientY, distance = endY - startY, duration = Date.now() - startTime;
+                const velocity = Math.abs(distance) / duration;
+                const shouldCloseByFlick = distance > 0 && velocity > FLICK_VELOCITY_THRESHOLD;
+                const shouldCloseByHeight = sidebar.offsetHeight < MIN_CLOSE_HEIGHT;
+                if (shouldCloseByFlick || shouldCloseByHeight) {
+                    history.back();
+                }
             });
-        })
-    );
-});
+        }
+        
+        async function openSidebar(type, data) {
+            const lat = data.lat, lon = data.lon ?? data.lng; 
+            const targetLatLng = L.latLng(lat, lon); 
+            const newId = type === 'bike' ? data.station_no : data.id; 
+            smoothMoveTo(targetLatLng, null, true);
+            toggleSidebarUI(true);
+            STATE.currentContext = { type, data }; const c=document.getElementById('sb-content'),b=document.getElementById('sb-badge'),t=document.getElementById('sb-title'),s=document.getElementById('sb-subtitle'); c.innerHTML=`<div class="animate-pulse space-y-4"><div class="h-24 bg-gray-200 rounded-2xl"></div><div class="h-12 bg-gray-200 rounded-xl"></div></div>`;
+            if (type === 'bus') { b.className='inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold mb-2 bg-blue-100 text-blue-700'; b.innerHTML='<span class="material-icons-outlined text-sm mr-1">directions_bus</span> 公車'; t.innerText=data.name; s.innerText=`ID: ${data.id}`; const a=await getBusArrivals(data.id); if(a!==null) renderBusContent(a,c); else refreshData(); } 
+            else if (type === 'bike') { b.className='inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold mb-2 bg-yellow-100 text-yellow-800'; b.innerHTML='<span class="material-icons-round text-sm mr-1">pedal_bike</span> YouBike 2.0'; t.innerText=data.name_tw; s.innerText=data.address_tw; const i=await getBikeRealtime(data.station_no); if(i!==null) renderBikeContent(i,c); else refreshData(); } 
+            else if (type === 'metro') { const l=data.id.charAt(0).toUpperCase(); let bc='',bt=''; if(l==='R'){bc='bg-red-100 text-red-700';bt='紅線';}else if(l==='O'){bc='bg-orange-100 text-orange-700';bt='橘線';}else{bc='bg-green-100 text-green-700';bt='環狀輕軌';} b.className=`inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold mb-2 ${bc}`; b.innerHTML=`<span class="material-icons-round text-sm mr-1">tram</span> ${bt}`; t.innerText=data.name; s.innerText=`車站代碼: ${data.id}`; const a=await getMetroLrtArrivals(data.id); if(a!==null) renderMetroLrtContent(a,c); else refreshData(); }
+            startAutoRefresh();
+            const paramName = type === 'bike' ? 'youbike' : type;
+            const newPath = `${window.location.pathname}?${paramName}=${newId}`;
+            history.pushState({ type, id: newId }, '', newPath);
+        }
+
+        function renderBusContent(d, c) { if (!d) { c.innerHTML = '<div class="p-4 bg-red-50 text-red-600 rounded-lg text-center text-sm">連線失敗</div>'; return; } if (d.length === 0) { c.innerHTML = '<div class="p-8 text-center text-slate-400"><span class="material-icons-outlined text-4xl mb-2">bus_alert</span><p>無營運路線</p></div>'; return; } const sid = STATE.currentContext.data.id; let h = '<div class="space-y-3">'; d.forEach(r => { let th = `<span class="text-gray-400 font-bold text-sm">未發車</span>`, sc = 'bg-white'; if (r.isSuspended) { th = `<span class="text-gray-500 text-sm">末班已過</span>`; } else if (r.etas?.[0]) { const m = r.etas[0].etaTime; if (m === 0) { th = `<span class="text-red-600 font-bold flex items-center justify-end text-sm"><span class="material-icons-round text-sm mr-1 animate-pulse">campaign</span>進站中</span>`; sc = 'bg-red-50'; } else if (m === 1) { th = `<span class="text-red-500 font-bold text-sm">即將到站</span>`; } else { th = `<span class="text-blue-600 font-bold text-lg">${m} <span class="text-xs">分</span></span>`; } } else if (r.comeTime) { th = `<span class="text-slate-600 font-medium text-sm">${r.comeTime}</span>`; } h += `<div onclick="confirmRedirect('${r.id}','${r.name}','${sid}')" class="p-3 rounded-2xl border ${sc} flex items-center justify-between transition bg-white active:scale-95 cursor-pointer"><div class="flex-1 min-w-0 mr-3"><div class="flex items-center gap-2"><span class="text-lg font-bold truncate">${r.name}</span><span class="text-[10px] px-2 py-0.5 bg-gray-100 rounded-full shrink-0">${r.dir}</span></div></div><div class="text-right min-w-[80px]">${th}</div><span class="material-icons-outlined text-slate-300 ml-2">chevron_right</span></div>`; }); c.innerHTML = h + '</div>'; }
+        function renderBikeContent(i, c) { if (!i) { c.innerHTML = '<div class="p-4 bg-red-50 text-red-600 rounded-lg text-center">無法取得即時車位</div>'; return; } const {yb2, eyb} = i.available_spaces_detail, emp = i.empty_spaces, t = new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'}); const gnc = (n) => n>3?'text-slate-800':(n>0?'text-orange-600':'text-gray-300'); c.innerHTML = `<div class="space-y-4"><div class="grid grid-cols-2 gap-3"><div class="bg-gradient-to-br from-amber-50 to-amber-100 p-4 rounded-3xl border relative h-28"><div class="z-10"><span class="text-xs font-bold text-amber-700 uppercase">一般車輛</span><div class="flex items-baseline"><span class="text-4xl font-black ${gnc(yb2)}">${yb2}</span><span class="text-xs ml-1">輛</span></div></div><span class="material-icons-round absolute right-0 bottom-0 text-7xl text-amber-400 opacity-20 transform translate-x-1 translate-y-1">pedal_bike</span></div><div class="bg-gradient-to-br from-orange-50 to-orange-100 p-4 rounded-3xl border relative h-28"><div class="z-10"><div class="flex items-center justify-between"><span class="text-xs font-bold text-orange-700 uppercase">電輔車</span><span class="material-icons-round text-xs text-orange-600">bolt</span></div><div class="flex items-baseline"><span class="text-4xl font-black ${gnc(eyb)}">${eyb}</span><span class="text-xs ml-1">輛</span></div></div><span class="material-icons-round absolute right-0 bottom-0 text-7xl text-orange-400 opacity-20 transform translate-x-1 translate-y-1">electric_bike</span></div></div><div class="bg-gradient-to-br from-emerald-50 to-teal-100 p-5 rounded-3xl border flex justify-between items-center relative"><div class="z-10"><div class="text-xs text-emerald-800 font-bold uppercase">可歸還空位</div><div class="font-bold text-lg">停車柱</div></div><div class="text-5xl font-black text-emerald-600 z-10">${emp}</div><span class="material-icons-outlined absolute right-0 top-0 text-8xl text-emerald-500 opacity-10 transform translate-x-1 -translate-y-1">local_parking</span></div><div class="text-center text-xs text-slate-400 mt-2 flex justify-center items-center gap-1"><span class="material-icons-outlined text-sm">schedule</span> 更新於 ${t}</div></div>`; }
+        function renderMetroLrtContent(d, c) {
+            if (!d) { c.innerHTML = '<div class="p-4 bg-red-50 text-red-600 rounded-lg text-center text-sm">無法取得即時到站資訊</div>'; return; }
+            if (d.length === 0) { c.innerHTML = '<div class="p-8 text-center text-slate-400"><span class="material-icons-outlined text-4xl mb-2">tram</span><p>目前無列車動態</p></div>'; return; }
+            const lines = {}; d.forEach(t => { let key = t.lineName; if (!key) { const prefix = t.stationId.charAt(0).toUpperCase(); if (prefix === 'R') key = '紅線'; else if (prefix === 'O') key = '橘線'; else key = '輕軌'; } if (!lines[key]) lines[key] = []; lines[key].push(t); });
+            let h = '<div class="space-y-3">'; const now = Date.now();
+            Object.keys(lines).forEach(lineKey => {
+                const items = lines[lineKey]; const isAllZero = items.every(t => t.estimateTime === 0);
+                items.forEach(t => {
+                    let th = '', sc = 'bg-white';
+                    if (isAllZero) { th = `<span class="text-gray-500 text-sm">末班已過</span>`; } else {
+                        const timeBase = t.srcUpdateTime ? Date.parse(t.srcUpdateTime) : (t.updateTime ? Date.parse(t.updateTime) : now);
+                        const elapsedRaw = (now - timeBase) / 60000; const elapsedMins = Math.floor(elapsedRaw); const adjTime = t.estimateTime - elapsedMins;
+                        if (adjTime < 0) { th = `<span class="text-gray-500 text-sm">離站中</span>`; } else if (adjTime === 0) { th = `<span class="text-red-600 font-bold inline-flex items-center justify-end text-sm"><span class="material-icons-round text-sm mr-1 animate-pulse">campaign</span>進站中</span>`; sc = 'bg-red-50'; } else if (adjTime === 1) { th = `<span class="text-red-500 font-bold text-sm">即將到站</span>`; } else { th = `<span class="text-blue-600 font-bold text-lg">${adjTime} <span class="text-xs">分</span></span>`; }
+                    }
+                    let lc = '', ln = ''; if (lineKey.includes('紅')) { lc = 'bg-red-100 text-red-700'; ln = '紅線'; } else if (lineKey.includes('橘')) { lc = 'bg-orange-100 text-orange-700'; ln = '橘線'; } else { lc = 'bg-green-100 text-green-700'; ln = '輕軌'; }
+                    h += `<div class="p-3 rounded-2xl border ${sc} flex items-center justify-between bg-white"><div class="flex-1 min-w-0 mr-3"><div class="flex items-center gap-2"><span class="text-lg font-bold truncate">${t.tripHeadSign}</span><span class="text-[10px] px-2 py-0.5 ${lc} rounded-full shrink-0">${ln}</span></div></div><div class="text-right min-w-[80px]">${th}</div></div>`;
+                });
+            });
+            c.innerHTML = h + '</div>';
+        }
+
+        async function getBusArrivals(sid){const qr=`query Q($ids:[Int!]!){stations(lang:"zh",ids:$ids){edges{node{... on Station{routes{edges{goBack node{id name}}}}}}}}`; const qt=`query T($t:[EstimateStationInput!]!){stationEstimates(targets:$t){edges{node{comeTime isSuspended etas{etaTime}}}}}`; try{const r1=await fetch(CONFIG.IBUS_API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:qr,variables:{ids:[parseInt(sid,10)]}})});const j1=await r1.json(); const re=j1?.data?.stations?.edges?.[0]?.node?.routes?.edges; if(!re)return[]; const t=re.map(e=>({xno:parseInt(e.node.id,10),goBack:parseInt(e.goBack,10),stationId:parseInt(sid,10)})); const r2=await fetch(CONFIG.IBUS_API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:qt,variables:{t:t}})}); const j2=await r2.json(); const ests=j2.data.stationEstimates.edges; return re.map((e,i)=>({id:e.node.id,name:e.node.name,dir:e.goBack===1?'去程':'返程',...(ests[i]?.node||{})}));}catch(e){return null;}}
+        async function getBikeRealtime(id){try{const r=await fetch(CONFIG.UBIKE_REALTIME,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({station_no:[id]})}); const j=await r.json(); return j.retVal?.data?.[0];}catch(e){return null;}}
+        async function getMetroLrtArrivals(sid, force=false){const n=Date.now(); if(!force&&STATE.metroLrtLiveCache&&(n-STATE.metroLrtLiveCacheTime<20000)){return STATE.metroLrtLiveCache.filter(v=>v.stationId===sid);} try{const [metro,lrt]=await Promise.all([fetchWithProxy(CONFIG.METRO_LIVE),fetchWithProxy(CONFIG.LRT_LIVE)]); const all=(metro??[]).concat(lrt??[]); STATE.metroLrtLiveCache=all; STATE.metroLrtLiveCacheTime=n; return all.filter(v=>v.stationId===sid);}catch(e){return null;}}
+        const searchInput=document.getElementById('search-input'), resultsBox=document.getElementById('search-results'), searchClear=document.getElementById('search-clear');
+        function toggleClearBtn(){searchClear.classList.toggle('hidden', searchInput.value.length === 0);}
+        searchInput.addEventListener('input',(e)=>{toggleClearBtn(); const v=e.target.value.trim().toLowerCase(); if(v)doSearch(v); else resultsBox.classList.remove('show');});
+        searchInput.addEventListener('focus',()=>{const v=searchInput.value.trim().toLowerCase(); if(v)doSearch(v);});
+        searchClear.addEventListener('click',()=>{searchInput.value=''; toggleClearBtn(); resultsBox.classList.remove('show'); searchInput.focus();});
+        function calculateScore(item,key){const nk=key.toLowerCase(); let t,n,s; if('station_no' in item){t='bike';n=item.name_tw;s=item.address_tw;}else if(item.id.match(/^[ROC]/)){t='metro';n=item.name;s=item.id.toString();}else{t='bus';n=item.name;s=item.id.toString();} const nn=n.toLowerCase(),ns=s.toLowerCase(); let sc=0; if(nn.includes(nk)||ns.includes(nk)){if(nn===nk||ns===nk)sc=1000;else if(nn.startsWith(nk)||ns.startsWith(nk))sc=800;else sc=500;} if(t==='metro'&&ns===nk)sc+=500; return sc;}
+        function doSearch(key){resultsBox.innerHTML=''; const all=[]; if(STATE.settings.bus) STATE.dataBus.forEach(s=>{const score=calculateScore(s,key); if(score>0)all.push({type:'bus',data:s,score});}); if(STATE.settings.bike) STATE.dataBike.forEach(s=>{const score=calculateScore(s,key); if(score>0)all.push({type:'bike',data:s,score});}); if(STATE.settings.metroR || STATE.settings.metroO || STATE.settings.lrt) STATE.dataMetro.forEach(s=>{const score=calculateScore(s,key); if(score>0)all.push({type:'metro',data:s,score});}); all.sort((a,b)=>b.score-a.score); const final=all.slice(0,15); if(final.length===0)resultsBox.innerHTML='<div class="p-4 text-center text-slate-400 text-sm">找不到相關站點</div>'; else final.forEach(r=>appendResult(r.type,r.data)); resultsBox.classList.add('show');}
+        function appendResult(type,data){const div=document.createElement('div'); let n,s,i,c,id,cl; if(type==='bus'){n=data.name;s=`ID: ${data.id}`;i='directions_bus';c='bg-blue-100 text-blue-600';id=data.id;cl=STATE.busCluster;}else if(type==='bike'){n=data.name_tw;s=data.address_tw;i='pedal_bike';c='bg-yellow-100 text-yellow-800';id=data.station_no;cl=STATE.bikeCluster;}else{n=data.name;s=`車站代碼: ${data.id}`;i='tram';id=data.id; const l=data.id.charAt(0).toUpperCase(); if(l==='R'){c='bg-red-100 text-red-600';cl=STATE.metroRCluster;}else if(l==='O'){c='bg-orange-100 text-orange-700';cl=STATE.metroOCluster;}else{c='bg-green-100 text-green-600';cl=STATE.lrtCluster;}} div.className='p-3 flex items-center hover:bg-slate-50 cursor-pointer border-b last:border-0'; div.innerHTML=`<div class="w-10 h-10 rounded-full ${c} flex items-center justify-center mr-3 shrink-0"><span class="material-icons-outlined text-lg">${i}</span></div><div class="min-w-0"><div class="font-bold truncate">${n}</div><div class="text-xs text-slate-400 truncate">${s}</div></div>`; div.onclick=()=>{resultsBox.classList.remove('show');searchInput.value=n;toggleClearBtn();const m=STATE.markersMap[type==='bike'?'bike':(type==='bus'?'bus':'metro')][id];if(m){cl.zoomToShowLayer(m,()=>handleMarkerClick(m,type,data));}else{handleMarkerClick(null,type,data);}}; resultsBox.appendChild(div);}
+        document.addEventListener('click', (e) => { if (!document.querySelector('.search-container').contains(e.target)) resultsBox.classList.remove('show'); });
+        function handleUrlParameters() { const params = new URLSearchParams(window.location.search); const busId = params.get('bus'), bikeId = params.get('youbike'), metroId = params.get('metro'); let stationData, marker, type, cluster; if (busId) { stationData = STATE.dataBus.find(s => s.id == busId); if (stationData) { marker = STATE.markersMap.bus[busId]; type = 'bus'; cluster = STATE.busCluster; } } else if (bikeId) { stationData = STATE.dataBike.find(s => s.station_no == bikeId); if (stationData) { marker = STATE.markersMap.bike[bikeId]; type = 'bike'; cluster = STATE.bikeCluster; } } else if (metroId) { stationData = STATE.dataMetro.find(s => s.id.toLowerCase() == metroId.toLowerCase()); if (stationData) { marker = STATE.markersMap.metro[stationData.id]; type = 'metro'; const line = stationData.id.charAt(0).toUpperCase(); cluster = line === 'R' ? STATE.metroRCluster : (line === 'O' ? STATE.metroOCluster : STATE.lrtCluster); } } if (stationData && marker) { setTimeout(() => { cluster.zoomToShowLayer(marker, () => openSidebar(type, stationData)); }, 500); } }
+        function openSettingsModal() { document.getElementById('settings-modal').classList.remove('hidden'); }
+        function closeSettingsModal() { document.getElementById('settings-modal').classList.add('hidden'); }
+        function saveSettings() { localStorage.setItem('mapLayerSettings', JSON.stringify(STATE.settings)); }
+        function initSettings() { let savedSettings = {}; try { savedSettings = JSON.parse(localStorage.getItem('mapLayerSettings')) || {}; } catch (e) {} STATE.settings = { ...DEFAULT_SETTINGS, ...savedSettings }; const params = new URLSearchParams(window.location.search); if (params.has('bus')) STATE.settings.bus = true; if (params.has('youbike')) STATE.settings.bike = true; if (params.has('metro')) { const metroId = params.get('metro').toUpperCase(); if (metroId.startsWith('R')) STATE.settings.metroR = true; if (metroId.startsWith('O')) STATE.settings.metroO = true; if (metroId.startsWith('C')) STATE.settings.lrt = true; } const togglesContainer = document.getElementById('settings-toggles'); const toggleData = [ { id: 'bus', icon: 'directions_bus', color: 'blue', label: '公車' }, { id: 'bike', icon: 'pedal_bike', color: 'yellow', label: 'YouBike' }, { id: 'metroR', icon: 'tram', color: 'red', label: '捷運紅線' }, { id: 'metroO', icon: 'tram', color: 'orange', label: '捷運橘線' }, { id: 'lrt', icon: 'tram', color: 'green', label: '環狀輕軌' }, ]; togglesContainer.innerHTML = toggleData.map(t => { const colorClass = t.id === 'bike' ? 'bg-yellow-100 text-yellow-800' : `bg-${t.color}-100 text-${t.color}-600`; return ` <label for="${t.id}-toggle" class="flex items-center justify-between cursor-pointer"> <div class="flex items-center gap-3"> <div class="w-8 h-8 rounded-full ${colorClass} flex items-center justify-center"><span class="material-icons-round text-lg">${t.icon}</span></div> <span class="font-medium text-slate-700">${t.label}</span> </div> <input type="checkbox" id="${t.id}-toggle" class="hidden"> <div class="toggle-switch"></div> </label> `}).join(''); toggleData.forEach(t => { const checkbox = document.getElementById(`${t.id}-toggle`); checkbox.checked = STATE.settings[t.id]; checkbox.addEventListener('change', handleToggleChange); }); }
+        async function handleToggleChange(event) { const id = event.target.id.replace('-toggle', ''); STATE.settings[id] = event.target.checked; saveSettings(); if (event.target.checked) { if (id === 'bus' && STATE.dataBus.length === 0) await loadBusData(); if (id === 'bike' && STATE.dataBike.length === 0) await loadBikeData(); if ((id === 'metroR' || id === 'metroO' || id === 'lrt') && STATE.dataMetro.length === 0) { await loadMetroLrtData(); } if (id === 'bus') createBusMarkers(); if (id === 'bike') createBikeMarkers(); if (id === 'metroR' || id === 'metroO' || id === 'lrt') createMetroLrtMarkers(); } applySettings(); }
+        function applySettings() { const layerMap = { bus: STATE.busCluster, bike: STATE.bikeCluster, metroR: STATE.metroRCluster, metroO: STATE.metroOCluster, lrt: STATE.lrtCluster }; for (const key in layerMap) { const layer = layerMap[key]; if (STATE.settings[key] && !STATE.map.hasLayer(layer)) STATE.map.addLayer(layer); else if (!STATE.settings[key] && STATE.map.hasLayer(layer)) STATE.map.removeLayer(layer); } }
+    </script>
+</body>
+</html>
