@@ -351,63 +351,93 @@
         function updateUserLocation(pos) { const { latitude, longitude, accuracy } = pos.coords; if (STATE.userAccuracy) STATE.map.removeLayer(STATE.userAccuracy); if (STATE.userMarker) STATE.map.removeLayer(STATE.userMarker); STATE.userAccuracy = L.circle([latitude, longitude], { radius: accuracy, color: '#3b82f6', fillOpacity: 0.1, weight: 1, interactive: false }).addTo(STATE.map); STATE.userMarker = L.marker([latitude, longitude], { icon: L.divIcon({ className: 'bg-blue-600 border-2 border-white rounded-full shadow-lg', iconSize: [14, 14] }) }).addTo(STATE.map); }
         function startContinuousGeolocation() { if (!navigator.geolocation || STATE.geoWatcherId) return; LOCATE_ICON_ELEMENT.innerText = 'gps_fixed'; const s = (pos) => { updateUserLocation(pos); }; const e = (err) => { LOCATE_ICON_ELEMENT.innerText = 'my_location'; if(STATE.geoWatcherId) { navigator.geolocation.clearWatch(STATE.geoWatcherId); STATE.geoWatcherId = null; } }; STATE.geoWatcherId = navigator.geolocation.watchPosition( s, e, { timeout: 15000, enableHighAccuracy: true, maximumAge: 0 } ); }
         
-        // --- 核心修改：計算側邊欄偏移後的中心點 (不改變 Zoom) ---
-        function calculateOffsetCenter(latlng) {
+        // --- 核心修改：計算側邊欄偏移後的中心點 (支援自訂 Zoom 或使用當前 Zoom) ---
+        function calculateOffsetCenter(latlng, targetZoom) {
             const sb = document.getElementById('sidebar');
-            // 如果側邊欄沒開，直接返回原座標
-            if (!sb.classList.contains('active')) {
-                return latlng;
-            }
-
-            const currentZoom = STATE.map.getZoom();
-            const targetPoint = STATE.map.project(latlng, currentZoom);
+            // 如果側邊欄沒開，且也沒有強制要求偏移，直接返回
+            // 這裡我們假設呼叫者會負責判斷是否需要偏移，但如果 sb 本身已經 active，我們就計算
+            // 為了支援 openSidebar (尚未 active 但即將 active)，我們讓呼叫者控制是否 forceOffset
+            // 在此函式中，我們主要負責數學計算
+            
+            // 實際上，openSidebar 和 locateUser 的情境不同
+            // 這裡我們簡單化：如果 sidebar active，就算 offset；否則不算
+            // 但 openSidebar 需要強制算
+            
+            // 重構：此函式只負責算「如果側邊欄打開，中心點在哪」
+            // 呼叫者自己決定要不要用這個點
+            
+            const zoom = targetZoom ?? STATE.map.getZoom();
+            const targetPoint = STATE.map.project(latlng, zoom);
             
             const isLandscape = window.innerWidth > window.innerHeight;
             let panByX = 0, panByY = 0;
             
             if (isLandscape) { 
-                panByX = -196; // 橫向模式：側邊欄在左，地圖需向右移 (X負值)
+                panByX = -196; 
             } else { 
-                // 直向模式：計算視窗中心與剩餘地圖區域中心的差距
                 const sr = document.querySelector('.search-container').getBoundingClientRect();
-                const vmh = window.innerHeight * 0.4; // 側邊欄佔 60%，地圖剩 40%
-                const vmcy = sr.bottom + (vmh - sr.bottom) / 2; // 可視區域的中心 Y
-                panByY = (window.innerHeight / 2) - vmcy; // 需要移動的 Y 距離
+                const vmh = window.innerHeight * 0.4; 
+                const vmcy = sr.bottom + (vmh - sr.bottom) / 2; 
+                panByY = (window.innerHeight / 2) - vmcy; 
             }
 
             const newCenterPoint = targetPoint.add(L.point(panByX, panByY));
-            return STATE.map.unproject(newCenterPoint, currentZoom);
+            return STATE.map.unproject(newCenterPoint, zoom);
         }
 
-        // --- 核心修改：定位功能 (含防中斷與偏移計算) ---
+        // --- 核心修改：平滑移動與防震動 (Anti-Jitter) ---
+        function smoothMoveTo(targetLatLng, targetZoom, forceOffset = false) {
+            const sb = document.getElementById('sidebar');
+            const shouldOffset = forceOffset || sb.classList.contains('active');
+            
+            const finalZoom = targetZoom ?? STATE.map.getZoom();
+            let destLatLng = targetLatLng;
+
+            if (shouldOffset) {
+                destLatLng = calculateOffsetCenter(targetLatLng, finalZoom);
+            }
+
+            // 防震動檢查：計算螢幕像素距離
+            const currentScreenPoint = STATE.map.latLngToContainerPoint(STATE.map.getCenter());
+            // 注意：latLngToContainerPoint 使用當前 zoom，如果 zoom 要變，比較距離意義不大，直接飛
+            // 如果 zoom 不變，我們才做距離檢查
+            
+            if (finalZoom === STATE.map.getZoom()) {
+                const targetScreenPoint = STATE.map.latLngToContainerPoint(destLatLng);
+                const dist = currentScreenPoint.distanceTo(targetScreenPoint);
+                
+                // 閾值：10px 內不移動
+                if (dist < 10) return; 
+                
+                // Zoom 不變，使用 panTo (平滑移動)
+                STATE.map.panTo(destLatLng, { animate: true, duration: 0.8 });
+            } else {
+                // Zoom 改變，使用 flyTo
+                STATE.map.flyTo(destLatLng, finalZoom, { animate: true, duration: 0.8 });
+            }
+        }
+
         function locateUser() {
             if (!navigator.geolocation) return showToast('瀏覽器不支援定位', 'error');
             
-            STATE.cancelLocateMove = false; // 重置中斷旗標
+            STATE.cancelLocateMove = false; 
             LOCATE_ICON_ELEMENT.classList.add('spin-anim');
 
-            // 1. 如果有上次位置，先移動過去 (使用 offset 邏輯，但強制 zoom 18)
             if (STATE.userMarker) {
-                const target = calculateOffsetCenter(STATE.userMarker.getLatLng());
-                // 定位時允許改變 Zoom 到 18
-                STATE.map.flyTo(target, 18, { animate: true, duration: 0.8 });
+                // 定位時，我們允許它使用 flyTo (因為 zoom 設定為 18)
+                // 這裡 forceOffset = false，讓函式自己去判斷 sidebar 是否開啟
+                smoothMoveTo(STATE.userMarker.getLatLng(), 18, false);
             }
 
-            // 2. 取得最新位置
             navigator.geolocation.getCurrentPosition((pos) => {
                 updateUserLocation(pos);
                 LOCATE_ICON_ELEMENT.classList.remove('spin-anim');
                 
-                // 3. 檢查是否被中斷 (使用者在等待期間有無操作)
                 if (!STATE.cancelLocateMove) {
                     const latlng = L.latLng(pos.coords.latitude, pos.coords.longitude);
-                    // 計算考慮側邊欄的中心點
-                    const adjustedCenter = calculateOffsetCenter(latlng);
-                    // 移動地圖
-                    STATE.map.flyTo(adjustedCenter, 18, { animate: true, duration: 0.8 });
+                    smoothMoveTo(latlng, 18, false);
                     showToast('已重新定位到您的目前位置', 'success');
                 } else {
-                    // 如果被中斷，只更新藍點，不移動地圖
                     showToast('已更新位置', 'success');
                 }
 
@@ -661,34 +691,10 @@
             const targetLatLng = L.latLng(lat, lon); 
             const newId = type === 'bike' ? data.station_no : data.id; 
 
-            // --- 修正重點：點擊圖釘時，預先計算偏移中心，並使用 panTo (不縮放) ---
-            const isSameMarker = STATE.currentContext && STATE.currentContext.data && (type === 'bike' ? STATE.currentContext.data.station_no === newId : STATE.currentContext.data.id === newId); 
-            
-            if (!isSameMarker) {
-                // 取得側邊欄開啟後的偏移中心點
-                // 這裡我們模擬側邊欄開啟狀態來計算 (即便它現在還沒開，calculateOffsetCenter 會檢查 class，但我們手動處理邏輯確保準確)
-                
-                // 為了準確計算，我們假設側邊欄開啟後的偏移量
-                const currentZoom = STATE.map.getZoom();
-                const targetPoint = STATE.map.project(targetLatLng, currentZoom);
-                const isLandscape = window.innerWidth > window.innerHeight;
-                let panByX = 0, panByY = 0;
-                
-                if (isLandscape) { 
-                    panByX = -196; 
-                } else { 
-                    const sr = document.querySelector('.search-container').getBoundingClientRect();
-                    const vmh = window.innerHeight * 0.4; 
-                    const vmcy = sr.bottom + (vmh - sr.bottom) / 2;
-                    panByY = (window.innerHeight/2) - vmcy;
-                }
-                
-                const newCenterPoint = targetPoint.add(L.point(panByX, panByY));
-                const newCenterLatLng = STATE.map.unproject(newCenterPoint, currentZoom);
-                
-                // 使用 panTo 確保只移動不縮放
-                STATE.map.panTo(newCenterLatLng, {animate:true, duration:0.8});
-            }
+            // --- 點擊圖釘時：強制計算偏移中心並移動 (forceOffset=true) ---
+            // 即使是同一個圖釘，因為使用者可能移動了地圖，所以每次都要移動回中心
+            // 使用 null 作為 zoom 參數表示保持當前 zoom
+            smoothMoveTo(targetLatLng, null, true);
 
             toggleSidebarUI(true);
             STATE.currentContext = { type, data }; const c=document.getElementById('sb-content'),b=document.getElementById('sb-badge'),t=document.getElementById('sb-title'),s=document.getElementById('sb-subtitle'); c.innerHTML=`<div class="animate-pulse space-y-4"><div class="h-24 bg-gray-200 rounded-2xl"></div><div class="h-12 bg-gray-200 rounded-xl"></div></div>`;
