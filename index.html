@@ -166,45 +166,22 @@
             LRT_LIVE: 'https://traffic.tbkc.gov.tw/api/lrts/live-boards?language=zh-TW' 
         };
 
-        // 新版本：使用與 Flutter 通訊的橋樑
+        // 修改：使用 LocalStorage 取代 Bridge，實現網頁端自主儲存
         const SimpleDB = {
-            // 檢查是否在 Flutter 的 InAppWebView 環境中
-            _isFlutter: typeof window.flutter_inappwebview !== 'undefined',
-
-            async get(key) {
-                // 如果在 Flutter 環境中，就呼叫 'loadData' handler
-                if (this._isFlutter) {
-                    try {
-                        // 呼叫 Flutter 並等待回傳資料
-                        const jsonData = await window.flutter_inappwebview.callHandler('loadData', key);
-                        // Flutter 回傳的是 JSON 字串，我們需要解析它
-                        return jsonData ? JSON.parse(jsonData) : undefined;
-                    } catch (e) {
-                        console.error('Failed to load data from Flutter:', e);
-                        return undefined;
-                    }
-                } else {
-                    // 如果不在 App 環境 (例如在一般電腦瀏覽器中)，則不執行任何操作
-                    // 這樣可以確保網頁在瀏覽器中開發時不會出錯
-                    console.log('Not in Flutter environment, skipping DB get.');
-                    return undefined;
+            get(key) {
+                try {
+                    const data = localStorage.getItem(key);
+                    return data ? JSON.parse(data) : null;
+                } catch (e) {
+                    console.error('LocalStorage 讀取失敗:', e);
+                    return null;
                 }
             },
-
-            async set(key, value) {
-                // 如果在 Flutter 環境中，就呼叫 'saveData' handler
-                if (this._isFlutter) {
-                    try {
-                        // 將要儲存的 JavaScript 物件轉換為 JSON 字串
-                        const stringValue = JSON.stringify(value);
-                        // 呼叫 Flutter 並傳遞一個包含 key 和 value 的物件
-                        await window.flutter_inappwebview.callHandler('saveData', { key: key, value: stringValue });
-                    } catch (e) {
-                        console.error('Failed to save data to Flutter:', e);
-                    }
-                } else {
-                    // 如果不在 App 環境，則不執行任何操作
-                    console.log('Not in Flutter environment, skipping DB set.');
+            set(key, value) {
+                try {
+                    localStorage.setItem(key, JSON.stringify(value));
+                } catch (e) {
+                    console.error('LocalStorage 寫入失敗 (可能空間不足):', e);
                 }
             }
         };
@@ -278,7 +255,8 @@
             loading.classList.remove('visible');
             setTimeout(() => loading.remove(), 500);
 
-            const isApp = typeof window.ReactNativeWebView !== 'undefined';
+            // 修改：App 環境判斷修正為 flutter_inappwebview
+            const isApp = typeof window.flutter_inappwebview !== 'undefined';
             if (!isApp && 'serviceWorker' in navigator) {
                 navigator.serviceWorker.register('./service-worker.js').catch(err => {
                     console.log('PWA 註冊跳過 (可能是 file: 協議或 App 模式)');
@@ -510,7 +488,8 @@
         }
 
         const fetchWithProxy = async (url) => {
-            const isApp = typeof window.ReactNativeWebView !== 'undefined';
+            // 修改：修正 App 環境判斷為 flutter_inappwebview
+            const isApp = typeof window.flutter_inappwebview !== 'undefined';
             if (isApp) {
                 try {
                     const res = await fetch(url);
@@ -572,27 +551,44 @@
 
         async function fetchBusStationsGodMode() { const u = new Map(); try { const lq=`query { routes(lang: "zh") { edges { node { id name } } } }`; const ld=await fetchGraphQL(lq); const ar=ld.data.routes.edges; const bqb=ar.map(e=>`r_${e.node.id}: route(xno: ${e.node.id}, lang: "zh") { stations { edges { node { id name lat lon } } } }`).join('\n'); const gq=`query{${bqb}}`; const rs=await fetchGraphQL(gq); if (rs.errors) throw new Error("GQL Error"); if (rs.data) Object.values(rs.data).forEach(rd=>{ if(rd&&rd.stations)rd.stations.edges.forEach(e=>{ const s=e.node; if(!u.has(s.id)&&s.lat&&s.lon)u.set(s.id,{id:s.id,name:s.name,lat:s.lat,lon:s.lon}); }); }); return Array.from(u.values()); } catch (e) { throw e; } }
         
+        // 修改：離線優先載入邏輯 - 公車
         async function loadBusData() {
-            try {
-                const cached = await SimpleDB.get('OFFLINE_BUS');
-                if (cached) { STATE.dataBus = cached; }
-            } catch (e) { console.warn('讀取公車 DB 失敗', e); }
+            // 1. 先嘗試讀取快取
+            const cached = SimpleDB.get('OFFLINE_BUS');
+            if (cached) { STATE.dataBus = cached; }
 
+            // 2. 檢查網路狀態
+            if (!navigator.onLine) {
+                if (STATE.dataBus.length === 0) updateLoading("離線且無資料", 0, 0);
+                return; // 離線則停止
+            }
+
+            // 3. 若有網路，嘗試更新
             try {
                 const data = await fetchBusStationsGodMode();
                 if (data && data.length > 0) {
                     STATE.dataBus = data;
-                    await SimpleDB.set('OFFLINE_BUS', data);
+                    SimpleDB.set('OFFLINE_BUS', data);
                 }
-            } catch (e) { if (STATE.dataBus.length === 0) updateLoading("💥 公車資料載入失敗"); }
+            } catch (e) { 
+                // 若網路失敗但有快取，則不報錯
+                if (STATE.dataBus.length === 0) updateLoading("💥 公車資料載入失敗"); 
+            }
         }
 
+        // 修改：離線優先載入邏輯 - YouBike
         async function loadBikeData() {
-            try {
-                const cached = await SimpleDB.get('OFFLINE_BIKE');
-                if (cached) { STATE.dataBike = cached; }
-            } catch (e) { console.warn('讀取 YouBike DB 失敗', e); }
+            // 1. 先嘗試讀取快取
+            const cached = SimpleDB.get('OFFLINE_BIKE');
+            if (cached) { STATE.dataBike = cached; }
 
+            // 2. 檢查網路狀態
+            if (!navigator.onLine) {
+                if (STATE.dataBike.length === 0) updateLoading("離線且無資料", 0, 0);
+                return;
+            }
+
+            // 3. 若有網路，嘗試更新
             try {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 5000);
@@ -605,17 +601,26 @@
                 });
                 if (validData.length > 0) {
                     STATE.dataBike = validData;
-                    await SimpleDB.set('OFFLINE_BIKE', validData);
+                    SimpleDB.set('OFFLINE_BIKE', validData);
                 }
-            } catch (e) { if (STATE.dataBike.length === 0) updateLoading("💥 YouBike資料載入失敗"); }
+            } catch (e) { 
+                if (STATE.dataBike.length === 0) updateLoading("💥 YouBike資料載入失敗"); 
+            }
         }
 
+        // 修改：離線優先載入邏輯 - 捷運輕軌
         async function loadMetroLrtData() {
-            try {
-                const cached = await SimpleDB.get('OFFLINE_METRO');
-                if (cached) { STATE.dataMetro = cached; }
-            } catch (e) { console.warn('讀取捷運 DB 失敗', e); }
+            // 1. 先嘗試讀取快取
+            const cached = SimpleDB.get('OFFLINE_METRO');
+            if (cached) { STATE.dataMetro = cached; }
 
+            // 2. 檢查網路狀態
+            if (!navigator.onLine) {
+                if (STATE.dataMetro.length === 0) updateLoading("離線且無資料", 0, 0);
+                return;
+            }
+
+            // 3. 若有網路，嘗試更新
             try {
                 const [metro, lrt] = await Promise.all([
                     fetchWithProxy(CONFIG.METRO_STATIONS), 
@@ -626,9 +631,11 @@
                 (lrt??[]).forEach(s => { if (s.id && s.position?.lng) all.push({ id: s.id, name: s.name, lat: s.position.lat, lon: s.position.lng }); });
                 if (all.length > 0) {
                     STATE.dataMetro = all;
-                    await SimpleDB.set('OFFLINE_METRO', all);
+                    SimpleDB.set('OFFLINE_METRO', all);
                 }
-            } catch (e) { if (STATE.dataMetro.length === 0) updateLoading("💥 捷運輕軌資料載入失敗"); }
+            } catch (e) { 
+                if (STATE.dataMetro.length === 0) updateLoading("💥 捷運輕軌資料載入失敗"); 
+            }
         }
         
         function getVisualPosition(lat, lon) {
