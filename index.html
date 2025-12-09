@@ -166,46 +166,49 @@
             LRT_LIVE: 'https://traffic.tbkc.gov.tw/api/lrts/live-boards?language=zh-TW' 
         };
 
+        // 新版本：使用與 Flutter 通訊的橋樑
         const SimpleDB = {
-            dbName: 'KHH_Traffic_DB',
-            version: 1,
-            storeName: 'offline_data',
-            db: null,
-            async open() {
-                if (this.db) return this.db;
-                return new Promise((resolve, reject) => {
-                    const request = indexedDB.open(this.dbName, this.version);
-                    request.onupgradeneeded = (e) => {
-                        const db = e.target.result;
-                        if (!db.objectStoreNames.contains(this.storeName)) {
-                            db.createObjectStore(this.storeName);
-                        }
-                    };
-                    request.onsuccess = (e) => { this.db = e.target.result; resolve(this.db); };
-                    request.onerror = (e) => reject(e);
-                });
-            },
+            // 檢查是否在 Flutter 的 InAppWebView 環境中
+            _isFlutter: typeof window.flutter_inappwebview !== 'undefined',
+
             async get(key) {
-                await this.open();
-                return new Promise((resolve, reject) => {
-                    const tx = this.db.transaction(this.storeName, 'readonly');
-                    const store = tx.objectStore(this.storeName);
-                    const request = store.get(key);
-                    request.onsuccess = () => resolve(request.result);
-                    request.onerror = () => reject(request.error);
-                });
+                // 如果在 Flutter 環境中，就呼叫 'loadData' handler
+                if (this._isFlutter) {
+                    try {
+                        // 呼叫 Flutter 並等待回傳資料
+                        const jsonData = await window.flutter_inappwebview.callHandler('loadData', key);
+                        // Flutter 回傳的是 JSON 字串，我們需要解析它
+                        return jsonData ? JSON.parse(jsonData) : undefined;
+                    } catch (e) {
+                        console.error('Failed to load data from Flutter:', e);
+                        return undefined;
+                    }
+                } else {
+                    // 如果不在 App 環境 (例如在一般電腦瀏覽器中)，則不執行任何操作
+                    // 這樣可以確保網頁在瀏覽器中開發時不會出錯
+                    console.log('Not in Flutter environment, skipping DB get.');
+                    return undefined;
+                }
             },
+
             async set(key, value) {
-                await this.open();
-                return new Promise((resolve, reject) => {
-                    const tx = this.db.transaction(this.storeName, 'readwrite');
-                    const store = tx.objectStore(this.storeName);
-                    const request = store.put(value, key); 
-                    request.onsuccess = () => resolve();
-                    request.onerror = () => reject(request.error);
-                });
+                // 如果在 Flutter 環境中，就呼叫 'saveData' handler
+                if (this._isFlutter) {
+                    try {
+                        // 將要儲存的 JavaScript 物件轉換為 JSON 字串
+                        const stringValue = JSON.stringify(value);
+                        // 呼叫 Flutter 並傳遞一個包含 key 和 value 的物件
+                        await window.flutter_inappwebview.callHandler('saveData', { key: key, value: stringValue });
+                    } catch (e) {
+                        console.error('Failed to save data to Flutter:', e);
+                    }
+                } else {
+                    // 如果不在 App 環境，則不執行任何操作
+                    console.log('Not in Flutter environment, skipping DB set.');
+                }
             }
         };
+
 
         const STATE = { 
             map: null, 
