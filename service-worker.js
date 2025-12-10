@@ -1,14 +1,14 @@
 // Service Worker Version
-// 更新版本號為 v3 以確保新設定生效 (會清除舊快取)
-const CACHE_NAME = 'kh-transport-v3';
+// 更新版本號為 v4 以確保新設定生效 (會清除舊快取)
+const CACHE_NAME = 'kh-transport-v4';
 
-// 這些資源會被安裝時預先快取
-const STATIC_ASSETS = [
+// 可以正常快取的資源
+const NORMAL_ASSETS = [
     './',
     './index.html',
     './manifest.json',
     './icons/icon.ico',
-    './icons/icon-192x192.png', // 新增：補上這個圖示，解決找不到檔案的錯誤
+    './icons/icon-192x192.png',
     
     // Leaflet 核心與聚合套件 (CDN)
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
@@ -17,19 +17,35 @@ const STATIC_ASSETS = [
     'https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css',
     'https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js',
     
-    // UI 樣式與字型 (CDN)
-    'https://cdn.tailwindcss.com',
+    // 字型 (CDN)
     'https://fonts.googleapis.com/icon?family=Material+Icons+Outlined|Material+Icons+Round',
     'https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap'
 ];
 
+// TailwindCSS 需要使用 no-cors 模式特殊處理
+const TAILWIND_ASSET = 'https://cdn.tailwindcss.com';
+
 // 安裝階段：預先下載靜態資源
 self.addEventListener('install', event => {
     event.waitUntil(
-        caches.open(CACHE_NAME).then(cache => {
-            console.log('[SW] Pre-caching offline assets');
-            // 使用 addAll 下載所有檔案
-            return cache.addAll(STATIC_ASSETS);
+        caches.open(CACHE_NAME).then(async (cache) => { // 使用 async 函數
+            console.log('[SW] Pre-caching standard assets');
+            // 1. 使用 addAll 快取可以正常請求的資源
+            await cache.addAll(NORMAL_ASSETS);
+
+            console.log('[SW] Caching Tailwind CSS with no-cors');
+            // 2. 對於 Tailwind CSS，使用 no-cors 模式單獨請求並快取
+            try {
+                // 建立一個 no-cors 請求
+                const request = new Request(TAILWIND_ASSET, { mode: 'no-cors' });
+                // 發送請求
+                const response = await fetch(request);
+                // 將請求和回應存入快取
+                await cache.put(request, response);
+            } catch (error) {
+                console.error('[SW] Failed to cache Tailwind CSS:', error);
+                // 即使 Tailwind 快取失敗，也不要讓整個 Service Worker 安裝失敗
+            }
         })
     );
     self.skipWaiting(); // 強制讓新的 SW 立刻進入 active 狀態
@@ -58,8 +74,8 @@ self.addEventListener('fetch', event => {
     // 包含: 公車(iBus)、YouBike、捷運輕軌(traffic.tbkc)、以及 Proxy 服務
     if (url.hostname.includes('ibus.tbkc.gov.tw') || 
         url.hostname.includes('apis.youbike.com.tw') ||
-        url.hostname.includes('traffic.tbkc.gov.tw') || // 新增：捷運輕軌 API 也不要快取
-        url.href.includes('corsproxy.io') ||            // 新增：Proxy 也不要快取
+        url.hostname.includes('traffic.tbkc.gov.tw') ||
+        url.href.includes('corsproxy.io') ||
         url.href.includes('workers.dev')) {
         
         // 對於 API，直接回傳網路請求，失敗就失敗 (由網頁端 JS 處理錯誤)
@@ -96,8 +112,6 @@ self.addEventListener('fetch', event => {
                 return networkResponse;
             }).catch(() => {
                 // C. 網路請求失敗且快取中也沒有對應資源
-                // 這裡可以選擇性地回傳一個預設的離線圖示或頁面，目前保持空白即可
-                // console.log('Fetch failed and no cache for:', event.request.url);
             });
         })
     );
