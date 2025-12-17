@@ -13,7 +13,6 @@ from PyQt6.QtWebEngineCore import QWebEnginePage
 from PyQt6.QtWebChannel import QWebChannel
 from PyQt6.QtCore import QObject, pyqtSlot, pyqtSignal, QThread, Qt, QTimer, QSize, QRect, QPropertyAnimation, QEasingCurve, QPoint, QRectF
 from PyQt6.QtGui import QColor, QFontDatabase, QFont, QCursor, QIcon, QPainter, QFontMetrics, QPen, QBrush
-
 CONFIG = {
     'UBIKE_LIST': 'https://apis.youbike.com.tw/json/station-min-yb2.json',
     'UBIKE_REALTIME': 'https://apis.youbike.com.tw/tw2/parkingInfo',
@@ -28,7 +27,6 @@ CONFIG = {
         'Origin': 'https://www.youbike.com.tw'
     }
 }
-
 ICONS = {
     'search': '\ue8b6', 'my_location': '\ue55c', 'place': '\ue55f', 'refresh': '\ue5d5',
     'layers': '\ue53b', 'close': '\ue5cd', 'directions_bus': '\ue530', 'pedal_bike': '\ueb29',
@@ -36,7 +34,6 @@ ICONS = {
     'chevron_right': '\ue5cc', 'campaign': '\uef49', 'bus_alert': '\ue98f', 'gps_fixed': '\ue1b3',
     'arrow_back': '\ue5c4', 'cancel': '\ue5c9', 'check': '\ue876'
 }
-
 MAP_HTML = """
 <!DOCTYPE html>
 <html>
@@ -117,7 +114,6 @@ MAP_HTML = """
 </body>
 </html>
 """
-
 class FontLoader:
     @staticmethod
     def load_material_icons():
@@ -132,7 +128,6 @@ class FontLoader:
                 print("Material Icons 下載失敗"); return "Arial"
         font_id = QFontDatabase.addApplicationFont(font_path)
         return QFontDatabase.applicationFontFamilies(font_id)[0] if font_id != -1 else "Arial"
-
 class DataLoader(QThread):
     data_loaded = pyqtSignal(dict)
     def run(self):
@@ -142,7 +137,6 @@ class DataLoader(QThread):
             q = """query { routes(lang: "zh") { edges { node { id } } } }"""
             rids = [x['node']['id'] for x in requests.post(CONFIG['IBUS_API'], json={'query': q}).json()['data']['routes']['edges']][:60]
         except Exception as e: print(f"Bus Route Error: {e}"); rids = []
-
         print("正在下載公車所有站點 (3/5)...")
         try:
             if rids:
@@ -156,13 +150,11 @@ class DataLoader(QThread):
                             if n['id'] not in stops and n['lat']: stops[n['id']] = {'id': n['id'], 'name': n['name'], 'lat': n['lat'], 'lon': n['lon'], 'type': 'bus'}
                 result['bus'] = list(stops.values())
         except Exception as e: print(f"Bus Stops Error: {e}")
-
         print("正在下載 YouBike 站點 (4/5)...")
         try:
             b = requests.get(CONFIG['UBIKE_LIST']).json()
             result['bike'] = [{'id': s['station_no'], 'name': s['name_tw'], 'lat': float(s['lat']), 'lon': float(s['lng']), 'addr': s['address_tw'], 'type': 'bike'} for s in b if float(s['lat']) > 22.4]
         except Exception as e: print(f"Bike Error: {e}")
-
         print("正在下載捷運路線 (5/5)...")
         try:
             m = requests.get(CONFIG['METRO_STATIONS']).json(); l = requests.get(CONFIG['LRT_STATIONS']).json()
@@ -174,7 +166,6 @@ class DataLoader(QThread):
         except Exception as e: print(f"Metro Error: {e}")
         print("所有資料載入完成！")
         self.data_loaded.emit(result)
-
 class RealtimeFetcher(QThread):
     info_updated = pyqtSignal(dict)
     def __init__(self, t, i, n): super().__init__(); self.t, self.i, self.n = t, i, n
@@ -200,7 +191,6 @@ class RealtimeFetcher(QThread):
                 d = [x for x in m if x['stationId'] == self.i]
             self.info_updated.emit({'type': self.t, 'data': d}); print(f"-> {self.n} 資料更新完成")
         except Exception as e: print(f"!! {self.n} 載入失敗: {e}"); self.info_updated.emit({'type': self.t, 'data': None})
-
 class BackendBridge(QObject):
     markerClicked = pyqtSignal(str, str, str, float, float, str)
     mapClicked = pyqtSignal()
@@ -208,7 +198,6 @@ class BackendBridge(QObject):
     def onMarkerClicked(self, t, i, n, la, lo, a): self.markerClicked.emit(t, i, n, la, lo, a)
     @pyqtSlot()
     def onMapClicked(self): self.mapClicked.emit()
-
 class IconLabel(QLabel):
     def __init__(self, icon_name, size=24, color="black"):
         super().__init__()
@@ -217,35 +206,29 @@ class IconLabel(QLabel):
         self.setStyleSheet(f"color: {color}; background: transparent; border: none;")
         self.setFixedSize(size+10, size+10)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents) 
 class ElidedLabel(QLabel):
     def paintEvent(self, event):
         painter = QPainter(self)
         metrics = QFontMetrics(self.font())
         elided = metrics.elidedText(self.text(), Qt.TextElideMode.ElideRight, self.width())
         painter.drawText(self.rect(), self.alignment(), elided)
-
 class CountdownButton(QPushButton):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedSize(40, 40)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        # 移除 CSS 的背景與邊框，完全由 paintEvent 控制
         self.setStyleSheet("background: transparent; border: none;")
-        
         self.icon_lbl = IconLabel('refresh', 20, "#64748b")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0,0,0,0)
         layout.addWidget(self.icon_lbl, 0, Qt.AlignmentFlag.AlignCenter)
-        
         self.timer = QTimer(self)
         self.timer.setInterval(50)
         self.timer.timeout.connect(self.update_progress)
         self.duration = 30000
         self.elapsed = 0
         self.is_running = False
-
     def start_countdown(self, duration_ms=30000):
         self.duration = duration_ms
         self.elapsed = 0
@@ -253,43 +236,35 @@ class CountdownButton(QPushButton):
         self.timer.start()
         self.icon_lbl.setStyleSheet("color: #3b82f6;")
         self.update()
-
     def stop_countdown(self):
         self.is_running = False
         self.timer.stop()
         self.icon_lbl.setStyleSheet("color: #64748b;")
         self.update()
-
     def update_progress(self):
         self.elapsed += 50
         if self.elapsed >= self.duration:
             self.elapsed = 0
         self.update()
-
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(QColor("#f8fafc")))
         painter.drawEllipse(2, 2, 36, 36)
-        
         pen_grey = QPen(QColor("#e2e8f0"), 2)
         painter.setPen(pen_grey)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawEllipse(2, 2, 36, 36)
-
         if self.is_running:
             pen_blue = QPen(QColor("#3b82f6"), 2)
             pen_blue.setCapStyle(Qt.PenCapStyle.RoundCap)
             painter.setPen(pen_blue)
-            
             rect = QRectF(2, 2, 36, 36)
             progress = 1.0 - (self.elapsed / self.duration)
             span_angle = int(progress * 360 * 16)
             start_angle = 90 * 16 
             painter.drawArc(rect, start_angle, span_angle)
-
 class LayerCheckbox(QPushButton):
     def __init__(self, parent=None):
         super().__init__(parent); self.setCheckable(True); self.setCursor(Qt.CursorShape.PointingHandCursor); self.setFixedSize(24, 24)
@@ -298,7 +273,6 @@ class LayerCheckbox(QPushButton):
             QPushButton:checked {{ background-color: #2563eb; border: 2px solid #2563eb; color: white; font-family: "{MATERIAL_FONT_FAMILY}"; font-size: 18px; }}
         """)
         self.setText(ICONS['check'])
-
 class SettingsDialog(QDialog):
     def __init__(self, parent, settings, callback):
         super().__init__(parent); self.settings, self.callback = settings, callback
@@ -325,7 +299,6 @@ class SettingsDialog(QDialog):
         if e.button() == Qt.MouseButton.LeftButton: self.drag_pos = e.globalPosition().toPoint() - self.frameGeometry().topLeft(); e.accept()
     def mouseMoveEvent(self, e): 
         if e.buttons() == Qt.MouseButton.LeftButton: self.move(e.globalPosition().toPoint() - self.drag_pos); e.accept()
-
 class SearchResultItem(QWidget):
     def __init__(self, icon_key, bg_color, text_color, title, subtitle):
         super().__init__()
@@ -337,27 +310,22 @@ class SearchResultItem(QWidget):
         s_lbl = QLabel(subtitle); s_lbl.setStyleSheet("color: #94a3b8; font-size: 12px; background: transparent; border: none;")
         text_layout.addWidget(t_lbl); text_layout.addWidget(s_lbl)
         layout.addWidget(icon_frame); layout.addLayout(text_layout); layout.addStretch(); self.setStyleSheet("background-color: transparent;")
-
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         global MATERIAL_FONT_FAMILY; MATERIAL_FONT_FAMILY = FontLoader.load_material_icons()
         self.setWindowTitle("高雄交通智慧地圖"); self.resize(1280, 800)
-        
         self.web = QWebEngineView(); self.chn = QWebChannel(); self.brg = BackendBridge()
         self.brg.markerClicked.connect(self.open_sidebar); self.brg.mapClicked.connect(self.close_sidebar)
         self.chn.registerObject("backend", self.brg); self.web.page().setWebChannel(self.chn)
         self.web.page().featurePermissionRequested.connect(lambda u, f: self.web.page().setFeaturePermission(u, f, QWebEnginePage.PermissionPolicy.PermissionGrantedByUser))
         self.web.setHtml(MAP_HTML); self.setCentralWidget(self.web)
-        
         self.setup_ui()
         self.data, self.settings = {}, {'bus': True, 'bike': True, 'metroR': True, 'metroO': True, 'lrt': True}
         self.loader = DataLoader(); self.loader.data_loaded.connect(self.on_loaded); self.loader.start()
         self.timer = QTimer(); self.timer.timeout.connect(lambda: self.refresh_data(auto=True))
-        
         self.search_anim = QPropertyAnimation(self.search_box, b"pos"); self.search_anim.setDuration(300); self.search_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.res_anim = QPropertyAnimation(self.search_results, b"pos"); self.res_anim.setDuration(300); self.res_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-
     def setup_ui(self):
         self.search_box = QFrame(self); self.search_box.setStyleSheet("QFrame { background-color: white; border-radius: 24px; border: none; }")
         shadow = QGraphicsDropShadowEffect(); shadow.setBlurRadius(20); shadow.setColor(QColor(0,0,0,30)); shadow.setOffset(0, 4); self.search_box.setGraphicsEffect(shadow)
@@ -370,12 +338,10 @@ class MainWindow(QMainWindow):
         cl_layout.addWidget(IconLabel('cancel', 20, "#cbd5e1"), 0, Qt.AlignmentFlag.AlignCenter); self.clear_btn.setFixedSize(30, 30)
         self.clear_btn.setStyleSheet("background: transparent; border: none;"); self.clear_btn.clicked.connect(lambda: (self.search_input.clear(), self.search_results.hide()))
         self.clear_btn.hide(); sb_layout.addWidget(self.clear_btn)
-
         self.search_results = QListWidget(self); self.search_results.hide(); self.search_results.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.search_results.setStyleSheet("QListWidget { background-color: white; border-radius: 16px; border: none; outline: none; } QListWidget::item { border-bottom: 1px solid #f1f5f9; padding: 0px; } QListWidget::item:selected { background-color: #f8fafc; }")
         res_shadow = QGraphicsDropShadowEffect(); res_shadow.setBlurRadius(30); res_shadow.setColor(QColor(0,0,0,40)); res_shadow.setOffset(0, 10); self.search_results.setGraphicsEffect(res_shadow)
         self.search_results.itemClicked.connect(self.on_search_result_clicked)
-
         self.sidebar = QFrame(self); self.sidebar.hide(); self.sidebar.setStyleSheet("QFrame#Sidebar { background-color: #f8fafc; border-top-left-radius: 28px; border-top-right-radius: 28px; border: none; }"); self.sidebar.setObjectName("Sidebar")
         sb_shadow = QGraphicsDropShadowEffect(); sb_shadow.setBlurRadius(50); sb_shadow.setColor(QColor(0,0,0,60)); self.sidebar.setGraphicsEffect(sb_shadow)
         main_layout = QVBoxLayout(self.sidebar); main_layout.setContentsMargins(0,0,0,0); main_layout.setSpacing(0)
@@ -387,7 +353,7 @@ class MainWindow(QMainWindow):
         self.sb_title = QLabel(); self.sb_title.setStyleSheet("font-size: 20px; font-weight: 900; color: #1e293b; border: none;"); self.sb_title.setWordWrap(True)
         self.sb_sub = QLabel(); self.sb_sub.setStyleSheet("color: #64748b; font-size: 13px; border: none;")
         info_layout.addWidget(self.sb_title); info_layout.addWidget(self.sb_sub)
-        self.refresh_btn = CountdownButton() # [FIX] Updated button
+        self.refresh_btn = CountdownButton() 
         self.refresh_btn.clicked.connect(self.refresh_data)
         hl.addLayout(info_layout); hl.addWidget(self.refresh_btn); main_layout.addWidget(header)
         self.scroll_area = QScrollArea(); self.scroll_area.setWidgetResizable(True); self.scroll_area.setFrameShape(QFrame.Shape.NoFrame); self.scroll_area.setStyleSheet("background-color: transparent; border: none;")
@@ -395,20 +361,16 @@ class MainWindow(QMainWindow):
         self.sb_layout = QVBoxLayout(self.sb_content); self.sb_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.sb_layout.setContentsMargins(20, 20, 20, 80); self.sb_layout.setSpacing(12)
         self.scroll_area.setWidget(self.sb_content); main_layout.addWidget(self.scroll_area)
-
         self.settings_btn = QPushButton(self); self.settings_btn.setFixedSize(56, 56)
         self.settings_btn.setStyleSheet("QPushButton { background-color: white; border-radius: 28px; border: none; } QPushButton:hover { background-color: #eff6ff; }")
         btn_shadow = QGraphicsDropShadowEffect(); btn_shadow.setBlurRadius(20); btn_shadow.setColor(QColor(0,0,0,40)); btn_shadow.setOffset(0,4); self.settings_btn.setGraphicsEffect(btn_shadow)
         sl = QVBoxLayout(self.settings_btn); sl.addWidget(IconLabel('layers', 24, "#475569"), 0, Qt.AlignmentFlag.AlignCenter); self.settings_btn.clicked.connect(self.open_settings)
-
     def open_settings(self):
         d = SettingsDialog(self, self.settings, self.apply_layers)
         d.exec()
-
     def resizeEvent(self, event):
         self.update_layout_state()
         self.settings_btn.move(self.width() - 80, self.height() - 80)
-
     def update_layout_state(self):
         w, h = self.width(), self.height()
         sidebar_w, sidebar_gap = 380, 24
@@ -421,7 +383,6 @@ class MainWindow(QMainWindow):
                 search_target_x = 24
         else:
             search_target_x = 24
-
         search_w = min(400, w - search_target_x - 24)
         self.search_box.setFixedSize(search_w, 52)
         self.search_results.setFixedWidth(search_w)
@@ -430,7 +391,6 @@ class MainWindow(QMainWindow):
             self.res_anim.setEndValue(QPoint(search_target_x, 84)); self.res_anim.start()
         else:
             self.search_box.move(search_target_x, 24); self.search_results.move(search_target_x, 84)
-
     def pan_map_to_offset(self, lat, lon):
         w, h = self.width(), self.height()
         offset_x, offset_y = 0, 0
@@ -438,10 +398,8 @@ class MainWindow(QMainWindow):
             if w > h: offset_x = 190
             else: offset_y = -(h * 0.3)
         self.web.page().runJavaScript(f"flyToOffset({lat}, {lon}, 18, {offset_x}, {offset_y})")
-
     def on_loaded(self, data):
         self.data = data; self.apply_layers()
-
     def apply_layers(self):
         for k in ['bus', 'bike', 'metroR', 'metroO', 'lrt']: self.web.page().runJavaScript(f"clearLayer('{k}')")
         if self.settings['bus']: self.web.page().runJavaScript(f"addMarkers('bus', {json.dumps(self.data['bus'])})")
@@ -453,7 +411,6 @@ class MainWindow(QMainWindow):
             if self.settings['metroR']: self.web.page().runJavaScript(f"addMarkers('metroR', {json.dumps(r)})")
             if self.settings['metroO']: self.web.page().runJavaScript(f"addMarkers('metroO', {json.dumps(o)})")
             if self.settings['lrt']: self.web.page().runJavaScript(f"addMarkers('lrt', {json.dumps(c)})")
-
     def update_search(self, text):
         text = text.strip().lower(); self.search_results.clear(); self.clear_btn.setVisible(bool(text))
         if not text: self.search_results.hide(); return
@@ -480,24 +437,19 @@ class MainWindow(QMainWindow):
             self.search_results.setItemWidget(iw, SearchResultItem(ic, bg, fg, item.get('name') or item.get('name_tw'), sub))
             iw.setData(Qt.ItemDataRole.UserRole, {'cat': cat, 'data': item})
         self.search_results.show(); h = min(400, self.search_results.count() * 60 + 10); self.search_results.setFixedHeight(h)
-
     def on_search_result_clicked(self, item):
         d = item.data(Qt.ItemDataRole.UserRole); data = d['data']
         self.open_sidebar(d['cat'], str(data['id']), data.get('name') or data.get('name_tw'), data['lat'], data['lon'], data.get('addr',''))
         self.pan_map_to_offset(data['lat'], data['lon']) 
         self.search_results.hide(); self.search_input.clear()
-
     def clear_layout(self, layout):
         while layout.count():
             child = layout.takeAt(0)
             if child.widget(): child.widget().deleteLater()
             elif child.layout(): self.clear_layout(child.layout())
-
     def open_sidebar(self, t, i, n, la, lo, a):
         self.ctx = {'t': t, 'i': i, 'n': n}; self.sb_title.setText(n)
-        
         self.clear_layout(self.sb_layout)
-
         if t == 'bus': self.sb_badge.setText("公車"); self.sb_badge.setStyleSheet("background-color: #dbeafe; color: #1d4ed8; border-radius: 6px; padding: 2px 8px; font-weight: bold;")
         elif t == 'bike': self.sb_badge.setText("YouBike 2.0"); self.sb_badge.setStyleSheet("background-color: #fef9c3; color: #854d0e; border-radius: 6px; padding: 2px 8px; font-weight: bold;")
         else:
@@ -506,16 +458,12 @@ class MainWindow(QMainWindow):
             self.sb_badge.setStyleSheet(f"background-color: {bg}; color: {fg}; border-radius: 6px; padding: 2px 8px; font-weight: bold;")
         self.sb_sub.setText(f"ID: {i}" if t=='bus' else (a if t=='bike' else f"車站代碼: {i}"))
         self.sidebar.show(); self.update_layout_state(); 
-        # [FIX] Added Pan Map Logic
         self.pan_map_to_offset(la, lo)
-        
         self.refresh_btn.start_countdown()
         self.refresh_data(); self.timer.start(30000)
-
     def close_sidebar(self): 
         self.sidebar.hide(); self.update_layout_state(); 
         self.refresh_btn.stop_countdown(); self.timer.stop()
-
     def refresh_data(self, auto=False):
         if not hasattr(self, 'ctx'): return
         if not auto:
@@ -523,12 +471,10 @@ class MainWindow(QMainWindow):
             l = QLabel("載入中..."); l.setAlignment(Qt.AlignmentFlag.AlignCenter); l.setStyleSheet("color: #94a3b8; border: none;"); self.sb_layout.addWidget(l)
             self.refresh_btn.start_countdown()
         self.worker = RealtimeFetcher(self.ctx['t'], self.ctx['i'], self.ctx['n']); self.worker.info_updated.connect(self.render_sidebar); self.worker.start()
-
     def render_sidebar(self, res):
         self.clear_layout(self.sb_layout)
         d = res['data']
         if d is None: self.sb_layout.addWidget(QLabel("無法連線", styleSheet="color: red; padding: 20px; border: none;")); return
-
         if res['type'] == 'bus':
             if not d: 
                 no_bus = QFrame(); no_bus.setStyleSheet("border: 2px dashed #cbd5e1; border-radius: 12px; margin-top: 20px;")
@@ -551,7 +497,6 @@ class MainWindow(QMainWindow):
                 elif r['eta']: st.setText(f"{r['eta']} 分"); st.setStyleSheet("color: #2563eb; font-weight: 900; font-size: 18px; border: none;")
                 else: st.setText(r['ct'] or "未發車"); st.setStyleSheet("color: #64748b; font-weight: 500; border: none;")
                 cl.addWidget(left_container, 7); cl.addWidget(st, 3, Qt.AlignmentFlag.AlignRight); self.sb_layout.addWidget(card)
-
         elif res['type'] == 'bike':
             grid_widget = QWidget(); gl = QGridLayout(grid_widget); gl.setSpacing(15); gl.setContentsMargins(0,0,0,0)
             def make_card(title, val, icon, theme):
@@ -574,8 +519,6 @@ class MainWindow(QMainWindow):
             det = d.get('available_spaces_detail', {})
             gl.addWidget(make_card("一般車輛", det.get('yb2', 0), 'pedal_bike', 'yellow'), 0, 0)
             gl.addWidget(make_card("電輔車", det.get('eyb', 0), 'bolt', 'orange'), 0, 1)
-            
-            # [FIX] Separate layout logic for parking card
             park = QFrame(); park.setStyleSheet("background-color: #f0fdf4; border-radius: 20px; border: none;"); park.setFixedHeight(100)
             hl = QHBoxLayout(park); hl.setContentsMargins(24, 0, 30, 0)
             left_grp = QVBoxLayout(); left_grp.setSpacing(2); left_grp.setAlignment(Qt.AlignmentFlag.AlignVCenter)
@@ -583,10 +526,8 @@ class MainWindow(QMainWindow):
             pi = QLabel("P"); pi.setStyleSheet("color: #15803d; font-weight: 900; font-size: 32px; border: none;"); left_grp.addWidget(pl); left_grp.addWidget(pi)
             pv = QLabel(str(d.get('empty_spaces', 0))); pv.setStyleSheet("color: #166534; font-size: 42px; font-weight: 900; border: none;")
             hl.addLayout(left_grp); hl.addStretch(); hl.addWidget(pv)
-            
             self.sb_layout.addWidget(grid_widget); self.sb_layout.addWidget(park)
             self.sb_layout.addWidget(QLabel(f"更新於 {time.strftime('%H:%M')}", styleSheet="color: #cbd5e1; font-size: 11px; margin-top: 10px; qproperty-alignment: AlignCenter; border: none;"))
-
         elif res['type'] == 'metro':
             if not d: self.sb_layout.addWidget(QLabel("目前無列車動態", styleSheet="color: #94a3b8; padding: 20px; qproperty-alignment: AlignCenter; border: none;")); return
             for t in d:
@@ -599,7 +540,6 @@ class MainWindow(QMainWindow):
                 elif est == 1: st = QLabel("即將到站"); st.setStyleSheet("color: #ef4444; font-weight: bold; border: none;")
                 else: st = QLabel(f"{est} 分"); st.setStyleSheet("color: #2563eb; font-weight: 900; font-size: 18px; border: none;")
                 rl.addWidget(nm); rl.addStretch(); rl.addWidget(st); self.sb_layout.addWidget(row)
-
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     w = MainWindow()
