@@ -14,7 +14,6 @@ from PyQt6.QtWebChannel import QWebChannel
 from PyQt6.QtCore import QObject, pyqtSlot, pyqtSignal, QThread, Qt, QTimer, QSize, QRect, QPropertyAnimation, QEasingCurve, QPoint, QRectF
 from PyQt6.QtGui import QColor, QFontDatabase, QFont, QCursor, QIcon, QPainter, QFontMetrics, QPen, QBrush
 
-# --- 設定常數 ---
 CONFIG = {
     'UBIKE_LIST': 'https://apis.youbike.com.tw/json/station-min-yb2.json',
     'UBIKE_REALTIME': 'https://apis.youbike.com.tw/tw2/parkingInfo',
@@ -38,7 +37,6 @@ ICONS = {
     'arrow_back': '\ue5c4', 'cancel': '\ue5c9', 'check': '\ue876'
 }
 
-# --- 地圖 HTML ---
 MAP_HTML = """
 <!DOCTYPE html>
 <html>
@@ -135,7 +133,6 @@ class FontLoader:
         font_id = QFontDatabase.addApplicationFont(font_path)
         return QFontDatabase.applicationFontFamilies(font_id)[0] if font_id != -1 else "Arial"
 
-# --- 資料處理 ---
 class DataLoader(QThread):
     data_loaded = pyqtSignal(dict)
     def run(self):
@@ -212,7 +209,6 @@ class BackendBridge(QObject):
     @pyqtSlot()
     def onMapClicked(self): self.mapClicked.emit()
 
-# --- UI 元件 ---
 class IconLabel(QLabel):
     def __init__(self, icon_name, size=24, color="black"):
         super().__init__()
@@ -221,7 +217,7 @@ class IconLabel(QLabel):
         self.setStyleSheet(f"color: {color}; background: transparent; border: none;")
         self.setFixedSize(size+10, size+10)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents) # 讓點擊穿透
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
 class ElidedLabel(QLabel):
     def paintEvent(self, event):
@@ -230,7 +226,6 @@ class ElidedLabel(QLabel):
         elided = metrics.elidedText(self.text(), Qt.TextElideMode.ElideRight, self.width())
         painter.drawText(self.rect(), self.alignment(), elided)
 
-# [NEW] 自定義圓形倒數按鈕 (修正繪製問題)
 class CountdownButton(QPushButton):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -275,18 +270,15 @@ class CountdownButton(QPushButton):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        # 1. 繪製圓形背景
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(QColor("#f8fafc")))
         painter.drawEllipse(2, 2, 36, 36)
         
-        # 2. 繪製靜態邊框 (灰色)
         pen_grey = QPen(QColor("#e2e8f0"), 2)
         painter.setPen(pen_grey)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawEllipse(2, 2, 36, 36)
 
-        # 3. 繪製倒數進度圈 (藍色)
         if self.is_running:
             pen_blue = QPen(QColor("#3b82f6"), 2)
             pen_blue.setCapStyle(Qt.PenCapStyle.RoundCap)
@@ -297,9 +289,6 @@ class CountdownButton(QPushButton):
             span_angle = int(progress * 360 * 16)
             start_angle = 90 * 16 
             painter.drawArc(rect, start_angle, span_angle)
-            
-        # 讓 QPushButton 處理子元件 (IconLabel)
-        # super().paintEvent(event) # 不需要，因為我們完全接管了背景繪製
 
 class LayerCheckbox(QPushButton):
     def __init__(self, parent=None):
