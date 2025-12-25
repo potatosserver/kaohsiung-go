@@ -9,7 +9,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>高雄交通智慧地圖</title>
     
-    <!-- Favicon Settings -->
+    <!-- Favicon Settings (修正：使用相對路徑 ./) -->
     <link rel="shortcut icon" href="./icons/icon.ico" type="image/x-icon">
     <link rel="icon" href="./icons/icon.ico" type="image/x-icon">
     
@@ -18,7 +18,7 @@
     <meta name="theme-color" content="#ffffff">
     <meta name="mobile-web-app-capable" content="yes">
     
-    <!-- iOS Support -->
+    <!-- iOS Support (修正：使用相對路徑 ./) -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="高雄交通">
@@ -167,11 +167,8 @@
             UBIKE_REALTIME: 'https://apis.youbike.com.tw/tw2/parkingInfo', 
             IBUS_API: 'https://ibus.tbkc.gov.tw/ibus/graphql', 
             TRACKER_BASE: 'https://kaohsiung-go.pages.dev/bus', 
-            // 代理伺服器列表，索引為 0, 1...
-            PROXIES: [
-                'https://cors.io/?url=', 
-                'https://cors-anywhere.potatosserver.workers.dev/?url='
-            ],
+            PROXY_URL: 'https://corsproxy.io/?', 
+            PROXY_SEC: 'https://cors-anywhere.potatosserver.workers.dev/?url=', 
             METRO_STATIONS: 'https://traffic.tbkc.gov.tw/api/metro/stations', 
             LRT_STATIONS: 'https://traffic.tbkc.gov.tw/api/lrts', 
             METRO_LIVE: 'https://traffic.tbkc.gov.tw/api/metro/live-boards?language=zh-TW', 
@@ -196,14 +193,13 @@
             currentContext: null, pendingRouteId: null, pendingStationId: null, autoRefreshTimer: null, 
             userMarker: null, userAccuracy: null, geoWatcherId: null, metroLrtLiveCache: null, metroLrtLiveCacheTime: 0, 
             settings: {}, markersCreated: { bus: false, bike: false, metro: false }, anchors: [],
-            // 用於記錄當前鎖定的代理索引，預設從 0 開始
-            activeProxyIndex: 0, 
-            cancelLocateMove: false
+            useSecondaryProxy: false, cancelLocateMove: false
         };
         const LOCATE_ICON_ELEMENT = document.querySelector('#search-box button:last-child span');
         const DEFAULT_SETTINGS = { bus: true, bike: true, metroR: true, metroO: true, lrt: true };
 
         window.onload = async () => {
+            // 安全機制：若超過 15 秒還沒載入完成，強制顯示錯誤
             const safetyTimeout = setTimeout(() => {
                 const loading = document.getElementById('loading-screen');
                 if (loading && loading.classList.contains('visible')) {
@@ -212,12 +208,14 @@
             }, 15000);
 
             try {
+                // 強制註冊 SW，確保 CDN 能被快取 (不論是 Web 或 App)
                 if ('serviceWorker' in navigator) {
                     navigator.serviceWorker.register('./service-worker.js')
                         .then(reg => console.log('Service Worker 註冊成功'))
                         .catch(err => console.error('Service Worker 註冊失敗', err));
                 }
 
+                // 關鍵檢查：如果無網路且 SW 沒快取到 Leaflet，L 會是 undefined，這時要手動拋錯，避免 TypeError 崩潰
                 if (typeof L === 'undefined') {
                     throw new Error("地圖元件載入失敗 (請連網後重試以快取資源)");
                 }
@@ -257,18 +255,20 @@
                 const totalSteps = loadingTasks.length;
                 let currentStep = 1;
 
+                // 執行載入任務
                 for (const task of loadingTasks) {
                     updateLoading(`載入${task.name}`, currentStep, totalSteps);
-                    await task.fn();
+                    await task.fn(); // 這裡現在會安全地回傳，即使離線也不會報錯
                     currentStep++;
                 }
 
                 clearTimeout(safetyTimeout);
 
+                // 檢查是否完全沒有資料且離線 (Critical Error)
                 const totalDataCount = STATE.dataBus.length + STATE.dataBike.length + STATE.dataMetro.length;
                 if (totalDataCount === 0 && !navigator.onLine) {
                     showFatalError("無網路連線且無離線資料，無法運作");
-                    return; 
+                    return; // 停止執行，停留在錯誤畫面
                 }
 
                 if (STATE.settings.bus) createBusMarkers();
@@ -286,23 +286,26 @@
             } catch (err) {
                 console.error("Initialization Error:", err);
                 clearTimeout(safetyTimeout);
+                // 顯示更友善的錯誤訊息
                 let msg = "發生未預期的錯誤，請重試";
                 if (err.message.includes("地圖元件")) msg = err.message;
                 showFatalError(msg);
             }
         };
 
+        // 新增：顯示致命錯誤並停止轉圈 (支援 style 顯示以防 css 沒載入)
         function showFatalError(msg) {
             const loader = document.getElementById('loader-spinner');
             const errorDiv = document.getElementById('loading-error');
             const errorText = document.getElementById('loading-error-text');
             const statusText = document.getElementById('loading-text');
 
-            if (loader) loader.style.display = 'none'; 
-            if (statusText) statusText.style.display = 'none'; 
+            if (loader) loader.style.display = 'none'; // 隱藏轉圈
+            if (statusText) statusText.style.display = 'none'; // 隱藏狀態文字
             if (errorText) errorText.innerText = msg;
             if (errorDiv) {
                 errorDiv.classList.remove('hidden');
+                // 強制設定 display: flex，確保即使 Tailwind 沒載入也能顯示
                 errorDiv.style.display = 'flex';
             }
         }
@@ -478,17 +481,40 @@
             STATE.lrtCluster = L.markerClusterGroup({ ...o, iconCreateFunction: cf('marker-cluster-lrt') });
         }
 
-        // === 代理核心功能 (支援全代理、失敗自動循環切換) ===
         const fetchWithProxy = async (url) => {
-            // 加入防快取參數
+            // 1. 偵測是否為 App 環境 (Flutter InAppWebView)
+            const isApp = typeof window.flutter_inappwebview !== 'undefined';
+
+            if (isApp) {
+                // --- App 環境：直連模式 ---
+                try {
+                    console.log(`[App] 直連 API: ${url}`);
+                    // 直接對原始 URL 發起請求，不經過 Proxy
+                    const res = await fetch(url);
+                    
+                    if (!res.ok) {
+                        throw new Error(`HTTP ${res.status}`);
+                    }
+                    return await res.json();
+                } catch (e) {
+                    console.error(`[App] 直連失敗:`, e);
+                    // 如果直連失敗 (例如斷網)，直接拋出錯誤給上層處理 (顯示錯誤 UI)
+                    throw e;
+                }
+            }
+
+            // --- 瀏覽器環境：代理模式 (CORS Proxy) ---
+            
+            // 加入防快取參數 (避免代理伺服器回傳舊資料)
             const separator = url.includes('?') ? '&' : '?';
             const urlWithNoCache = `${url}${separator}_t=${Date.now()}`;
             
-            // 編碼目標網址
+            // 將目標網址編碼，準被接在 Proxy 網址後面
             const target = encodeURIComponent(urlWithNoCache);
-            const TIMEOUT_MS = 6000; 
+            
+            const TIMEOUT_MS = 5000; // 設定 5 秒超時
 
-            // 執行單次 Fetch 的內部函式
+            // 定義一個內部函式來執行代理請求
             const doFetch = async (proxyBase) => {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -503,31 +529,20 @@
                 }
             };
 
-            // 代理循環機制
-            // 迴圈次數等於代理數量，確保每個代理都有機會被嘗試一次
-            const proxiesCount = CONFIG.PROXIES.length;
-
-            for (let i = 0; i < proxiesCount; i++) {
-                // 取得當前鎖定的代理 (STATE.activeProxyIndex)
-                const currentProxy = CONFIG.PROXIES[STATE.activeProxyIndex];
-
-                try {
-                    const result = await doFetch(currentProxy);
-                    // 成功：直接回傳資料，activeProxyIndex 保持不變 (鎖定當前成功代理)
-                    return result;
-                } catch (e) {
-                    console.warn(`代理伺服器 [${STATE.activeProxyIndex}] 連線失敗，嘗試切換...`, e);
-                    
-                    // 失敗：切換到下一個代理索引
-                    // 使用 % 運算子實現循環： (0 -> 1 -> 0 -> 1 ...)
-                    STATE.activeProxyIndex = (STATE.activeProxyIndex + 1) % proxiesCount;
-                    
-                    // 繼續下一次迴圈嘗試新的 activeProxyIndex
-                }
+            // 如果之前標記過要使用備用代理，直接使用備用代理
+            if (STATE.useSecondaryProxy) {
+                return await doFetch(CONFIG.PROXY_SEC);
             }
 
-            // 若迴圈跑完仍無結果，表示所有代理皆失效
-            throw new Error("所有代理伺服器皆無法連線");
+            // 預設嘗試主代理
+            try {
+                return await doFetch(CONFIG.PROXY_URL);
+            } catch (e) {
+                console.warn(`主代理失敗 (${e.name})，切換至第二代理...`);
+                // 標記失敗，下次直接用備用代理
+                STATE.useSecondaryProxy = true;
+                return await doFetch(CONFIG.PROXY_SEC);
+            }
         };
 
         async function fetchGraphQL(q) { 
@@ -548,7 +563,7 @@
         async function loadBusData() {
             const cached = SimpleDB.get('OFFLINE_BUS');
             if (cached) { STATE.dataBus = cached; }
-            if (!navigator.onLine) return; 
+            if (!navigator.onLine) return; // 離線直接返回，不報錯
             try {
                 const data = await fetchBusStationsGodMode();
                 if (data && data.length > 0) { STATE.dataBus = data; SimpleDB.set('OFFLINE_BUS', data); }
@@ -578,7 +593,6 @@
             if (cached) { STATE.dataMetro = cached; }
             if (!navigator.onLine) return;
             try {
-                // 強制所有請求使用 fetchWithProxy
                 const [metro, lrt] = await Promise.all([fetchWithProxy(CONFIG.METRO_STATIONS), fetchWithProxy(CONFIG.LRT_STATIONS)]);
                 const all = [];
                 (metro??[]).forEach(s => { const lon = s.position?.lng ?? s.position?.lon; if (s.id && lon) all.push({ id: s.id, name: s.name, lat: s.position.lat, lon: lon }); });
