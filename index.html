@@ -672,8 +672,15 @@
                     let th = '', sc = 'bg-white';
                     if (isAllZero) { th = `<span class="text-gray-500 text-sm">末班已過</span>`; } else {
                         const timeBase = t.srcUpdateTime ? Date.parse(t.srcUpdateTime) : (t.updateTime ? Date.parse(t.updateTime) : now);
-                        const elapsedRaw = (now - timeBase) / 60000; const elapsedMins = Math.floor(elapsedRaw); const adjTime = t.estimateTime - elapsedMins;
-                        if (adjTime < 0) { th = `<span class="text-gray-500 text-sm">離站中</span>`; } else if (adjTime === 0) { th = `<span class="text-red-600 font-bold inline-flex items-center justify-end text-sm"><span class="material-icons-round text-sm mr-1 animate-pulse">campaign</span>進站中</span>`; sc = 'bg-red-50'; } else if (adjTime === 1) { th = `<span class="text-red-500 font-bold text-sm">即將到站</span>`; } else { th = `<span class="text-blue-600 font-bold text-lg">${adjTime} <span class="text-xs">分</span></span>`; }
+                        const elapsedRaw = (now - timeBase) / 60000; 
+                        const elapsedMins = Math.floor(elapsedRaw); 
+                        // 強制扣除一分鐘
+                        const adjTime = (t.estimateTime - elapsedMins) - 1;
+
+                        if (adjTime < 0) { th = `<span class="text-gray-500 text-sm">離站中</span>`; } 
+                        else if (adjTime === 0) { th = `<span class="text-red-600 font-bold inline-flex items-center justify-end text-sm"><span class="material-icons-round text-sm mr-1 animate-pulse">campaign</span>進站中</span>`; sc = 'bg-red-50'; } 
+                        else if (adjTime === 1) { th = `<span class="text-red-500 font-bold text-sm">即將到站</span>`; } 
+                        else { th = `<span class="text-blue-600 font-bold text-lg">${adjTime} <span class="text-xs">分</span></span>`; }
                     }
                     let lc = '', ln = ''; if (lineKey.includes('紅')) { lc = 'bg-red-100 text-red-700'; ln = '紅線'; } else if (lineKey.includes('橘')) { lc = 'bg-orange-100 text-orange-700'; ln = '橘線'; } else { lc = 'bg-green-100 text-green-700'; ln = '輕軌'; }
                     h += `<div class="p-3 rounded-2xl border ${sc} flex items-center justify-between bg-white"><div class="flex-1 min-w-0 mr-3"><div class="flex items-center gap-2"><span class="text-lg font-bold truncate">${t.tripHeadSign}</span><span class="text-[10px] px-2 py-0.5 ${lc} rounded-full shrink-0">${ln}</span></div></div><div class="text-right min-w-[80px]">${th}</div></div>`;
